@@ -74,7 +74,7 @@ struct MistakeListView: View {
                 }
                 .listRowSeparator(.hidden)
             } else {
-                ForEach(model.records) { record in
+                ForEach(model.records, id: \.id) { record in
                     recordRow(record)
                         .listRowInsets(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 4))
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -241,5 +241,4 @@ struct MistakeListView: View {
     }
 }
 
-private extension MistakeRecord: Identifiable {}
 #endif
