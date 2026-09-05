@@ -71,8 +71,13 @@ public struct MistakeRecord: Codable, Sendable, Equatable {
     public let reviewRequired: Bool
     public let reviewReasons: [ReviewReason]
     public let processingStatus: RecordProcessingStatus
+    /// Whether the record is hidden from the active mistake list and shown in the archive tab.
+    /// This is separate from taxonomy classification and review mastery.
+    public let isArchived: Bool
+    /// Last persisted importance evaluation. It is nil for legacy records that have not been evaluated.
+    public let mistakeValue: MistakeValueResult?
 
-    public init(id: UUID, schemaVersion: Int, recordRevision: Int, contentRevision: Int, createdAt: Date, updatedAt: Date, sourceRegions: [SourceRegion], ocrLines: [OCRLine], stem: EditableText, studentWork: EditableText, referenceAnswer: EditableText?, referenceAnswerSource: ReferenceAnswerSource?, analysisResult: AnalysisResult?, classification: ClassificationResult, notes: String, tags: [String], reviewState: ReviewState, reviewRequired: Bool, reviewReasons: [ReviewReason], processingStatus: RecordProcessingStatus) {
+    public init(id: UUID, schemaVersion: Int, recordRevision: Int, contentRevision: Int, createdAt: Date, updatedAt: Date, sourceRegions: [SourceRegion], ocrLines: [OCRLine], stem: EditableText, studentWork: EditableText, referenceAnswer: EditableText?, referenceAnswerSource: ReferenceAnswerSource?, analysisResult: AnalysisResult?, classification: ClassificationResult, notes: String, tags: [String], reviewState: ReviewState, reviewRequired: Bool, reviewReasons: [ReviewReason], processingStatus: RecordProcessingStatus, isArchived: Bool = false, mistakeValue: MistakeValueResult? = nil) {
         self.id = id
         self.schemaVersion = schemaVersion
         self.recordRevision = recordRevision
@@ -93,6 +98,8 @@ public struct MistakeRecord: Codable, Sendable, Equatable {
         self.reviewRequired = reviewRequired
         self.reviewReasons = reviewReasons
         self.processingStatus = processingStatus
+        self.isArchived = isArchived
+        self.mistakeValue = mistakeValue
     }
 
     public init(from decoder: any Decoder) throws {
@@ -119,6 +126,8 @@ public struct MistakeRecord: Codable, Sendable, Equatable {
         self.reviewRequired = try c.decode(Bool.self, forKey: .reviewRequired)
         self.reviewReasons = try c.decode([ReviewReason].self, forKey: .reviewReasons)
         self.processingStatus = try c.decode(RecordProcessingStatus.self, forKey: .processingStatus)
+        self.isArchived = try c.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        self.mistakeValue = try c.decodeIfPresent(MistakeValueResult.self, forKey: .mistakeValue)
     }
 }
 
@@ -195,4 +204,3 @@ public struct ManualRecordDraft: Codable, Sendable, Equatable {
         self.tags = tags
     }
 }
-

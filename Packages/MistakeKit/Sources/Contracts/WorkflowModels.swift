@@ -122,18 +122,38 @@ public struct RecordQuery: Codable, Sendable, Equatable {
     public let includeDescendants: Bool
     public let reviewStates: [ReviewState]
     public let reviewRequiredOnly: Bool
+    public let includeArchived: Bool
     public let includeDeleted: Bool
     public let sort: RecordSort
 
-    public init(text: String, subjectID: String?, taxonomyNodeID: String?, includeDescendants: Bool, reviewStates: [ReviewState], reviewRequiredOnly: Bool, includeDeleted: Bool, sort: RecordSort) {
+    public init(text: String, subjectID: String?, taxonomyNodeID: String?, includeDescendants: Bool, reviewStates: [ReviewState], reviewRequiredOnly: Bool, includeDeleted: Bool, sort: RecordSort, includeArchived: Bool = false) {
         self.text = text
         self.subjectID = subjectID
         self.taxonomyNodeID = taxonomyNodeID
         self.includeDescendants = includeDescendants
         self.reviewStates = reviewStates
         self.reviewRequiredOnly = reviewRequiredOnly
+        self.includeArchived = includeArchived
         self.includeDeleted = includeDeleted
         self.sort = sort
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case text, subjectID, taxonomyNodeID, includeDescendants, reviewStates, reviewRequiredOnly
+        case includeArchived, includeDeleted, sort
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = try c.decode(String.self, forKey: .text)
+        subjectID = try c.decodeIfPresent(String.self, forKey: .subjectID)
+        taxonomyNodeID = try c.decodeIfPresent(String.self, forKey: .taxonomyNodeID)
+        includeDescendants = try c.decode(Bool.self, forKey: .includeDescendants)
+        reviewStates = try c.decode([ReviewState].self, forKey: .reviewStates)
+        reviewRequiredOnly = try c.decode(Bool.self, forKey: .reviewRequiredOnly)
+        includeArchived = try c.decodeIfPresent(Bool.self, forKey: .includeArchived) ?? false
+        includeDeleted = try c.decode(Bool.self, forKey: .includeDeleted)
+        sort = try c.decode(RecordSort.self, forKey: .sort)
     }
 }
 
@@ -293,4 +313,3 @@ public struct ClearDataConfirmation: Codable, Sendable, Equatable {
         self.expiresAt = expiresAt
     }
 }
-

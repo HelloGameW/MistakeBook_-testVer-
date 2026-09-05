@@ -9,7 +9,7 @@ public struct MistakeBookRootView: View {
     @State private var selectedTab: RootTab = .mistakes
     @State private var showingImport = false
     @State private var showingSettings = false
-    @State private var selectedRecordID: UUID?
+    @State private var showingTaxonomy = false
     @State private var dataRefreshID = 0
 
     public init(service: any AppService) {
@@ -18,33 +18,25 @@ public struct MistakeBookRootView: View {
 
     public var body: some View {
         TabView(selection: $selectedTab) {
-            MistakeListView(service: service, selectedRecordID: $selectedRecordID,
-                            onImport: { showingImport = true })
+            MistakeListView(service: service, onImport: { showingImport = true },
+                            onSettings: { showingSettings = true })
                 .id(dataRefreshID)
                 .tabItem { Label("错题", systemImage: "book.closed") }
                 .tag(RootTab.mistakes)
 
-            ArchiveView(service: service)
+            ArchivedRecordListView(service: service, onSettings: { showingSettings = true },
+                                   onManageTaxonomy: { showingTaxonomy = true })
                 .tabItem { Label("归档", systemImage: "folder") }
                 .tag(RootTab.archive)
-        }
-        .overlay(alignment: .topTrailing) {
-            Button {
-                showingSettings = true
-            } label: {
-                Image(systemName: "gearshape")
-                    .font(.headline)
-                    .accessibilityLabel("设置")
-            }
-            .mbGlassControl()
-            .padding(.horizontal)
-            .padding(.top, 8)
         }
         .sheet(isPresented: $showingImport) {
             ImportFlowView(service: service) { dataRefreshID += 1 }
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView(service: service)
+        }
+        .sheet(isPresented: $showingTaxonomy) {
+            ArchiveView(service: service)
         }
     }
 }

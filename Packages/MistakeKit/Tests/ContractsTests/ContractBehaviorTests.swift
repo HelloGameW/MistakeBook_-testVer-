@@ -104,6 +104,21 @@ final class ContractBehaviorTests: XCTestCase {
         XCTAssertNil(settings.baiduEducation)
     }
 
+    func testLegacyRecordDefaultsArchiveAndValueFields() throws {
+        let record = try ContractJSON.decoder().decode(MistakeRecord.self, from: fixture("record-v1"))
+        XCTAssertFalse(record.isArchived)
+        XCTAssertNil(record.mistakeValue)
+    }
+
+    func testDeepSeekPresetsUseCurrentCompatibleModels() {
+        XCTAssertEqual(ModelAPIConfiguration.deepSeekText.baseURL, "https://api.deepseek.com")
+        XCTAssertEqual(ModelAPIConfiguration.deepSeekText.endpointPath, "/chat/completions")
+        XCTAssertEqual(ModelAPIConfiguration.deepSeekText.model, "deepseek-v4-flash")
+        XCTAssertEqual(ModelAPIConfiguration.deepSeekVision.model, "deepseek-v4-flash-vision-exp")
+        XCTAssertTrue(ModelAPIConfiguration.deepSeekText.isDeepSeek)
+        XCTAssertTrue(ModelAPIConfiguration.deepSeekVision.isDeepSeekVisionModel)
+    }
+
     func testAdditionalPublicConstructorsAndHelpers() throws {
         let failure = AppError(code: .modelUnavailable, logID: "synthetic", isRetryable: true)
         _ = failure.errorDescription

@@ -40,6 +40,25 @@ public struct ModelAPIConfiguration: Codable, Sendable, Equatable {
         self.model = model
         self.timeoutSeconds = timeoutSeconds
     }
+
+    /// Current DeepSeek OpenAI-compatible presets. The text preset is used for
+    /// analysis/value scoring; the vision preset is required for image OCR.
+    public static var deepSeekText: ModelAPIConfiguration {
+        ModelAPIConfiguration(baseURL: "https://api.deepseek.com", model: "deepseek-v4-flash")
+    }
+
+    public static var deepSeekVision: ModelAPIConfiguration {
+        ModelAPIConfiguration(baseURL: "https://api.deepseek.com", model: "deepseek-v4-flash-vision-exp")
+    }
+
+    public var isDeepSeek: Bool {
+        guard let host = URL(string: baseURL)?.host?.lowercased() else { return false }
+        return host == "deepseek.com" || host.hasSuffix(".deepseek.com")
+    }
+
+    public var isDeepSeekVisionModel: Bool {
+        model.lowercased() == "deepseek-v4-flash-vision-exp"
+    }
 }
 
 public enum BaiduEducationStrategy: String, Codable, Sendable, Equatable, CaseIterable {

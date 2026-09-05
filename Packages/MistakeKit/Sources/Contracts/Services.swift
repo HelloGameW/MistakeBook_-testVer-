@@ -114,6 +114,7 @@ public protocol AppService: Sendable {
     func updateTaxonomyNode(id: String, patch: TaxonomyNodePatch) async throws -> TaxonomySnapshot
     func deleteTaxonomyNode(request: TaxonomyDeleteRequest) async throws -> TaxonomySnapshot
     func updateReviewState(id: UUID, state: ReviewState, expectedRecordRevision: Int) async throws -> MistakeRecord
+    func setArchived(id: UUID, archived: Bool, expectedRecordRevision: Int) async throws -> MistakeRecord
     func delete(ids: [UUID], expectedVersions: [RecordVersion]) async throws -> DeletionToken
     func restore(token: DeletionToken) async throws -> [MistakeRecord]
     func export(request: ExportRequest) async throws -> ExportArtifact

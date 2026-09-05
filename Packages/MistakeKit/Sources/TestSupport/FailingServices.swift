@@ -341,6 +341,10 @@ public struct FailingAppService: AppService {
         try Task.checkCancellation()
         throw failure
     }
+    public func setArchived(id: UUID, archived: Bool, expectedRecordRevision: Int) async throws -> MistakeRecord {
+        try Task.checkCancellation()
+        throw failure
+    }
     public func delete(ids: [UUID], expectedVersions: [RecordVersion]) async throws -> DeletionToken {
         try Task.checkCancellation()
         throw failure

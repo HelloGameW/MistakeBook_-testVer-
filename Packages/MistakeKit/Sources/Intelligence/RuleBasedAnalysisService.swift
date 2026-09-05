@@ -14,12 +14,28 @@ public struct RuleBasedAnalysisService: AnalysisService, Sendable {
         guard !stem.isEmpty || !student.isEmpty else {
             return Self.insufficient(snapshot: snapshot, limitation: "题干和作答均为空，暂无法判断。")
         }
-        guard !student.isEmpty, !reference.isEmpty else {
-            return Self.insufficient(snapshot: snapshot, limitation: "缺少学生作答或参考答案/教师批注，暂无法判断。")
+        guard !student.isEmpty else {
+            return Self.insufficient(snapshot: snapshot, limitation: "缺少学生作答或解题步骤，暂无法判断。")
         }
 
         var hypotheses: [Hypothesis] = []
         var limitations = ["基础规则仅覆盖可安全规范化的短答案和简单数值比较，不等同于通用判题。"]
+        let explicitCues = Self.explicitCauseHypotheses(snapshot: snapshot, student: student)
+        hypotheses.append(contentsOf: explicitCues)
+        if !explicitCues.isEmpty {
+            limitations.append("已识别到学生作答中的显式错因线索；这不是对未明说原因的推断。")
+        }
+
+        guard !reference.isEmpty else {
+            if hypotheses.isEmpty {
+                return Self.insufficient(snapshot: snapshot, limitation: "缺少参考答案/教师批注，且学生作答中没有可安全识别的错因线索。")
+            }
+            limitations.append("缺少参考答案或教师批注，暂不比较最终答案；请人工确认候选错因。")
+            return AnalysisResult(status: .hypotheses, hypotheses: hypotheses, limitations: limitations,
+                                  engineID: "mistakebook.rules", engineVersion: "2",
+                                  inputContentRevision: snapshot.contentRevision,
+                                  referenceAnswerSource: snapshot.referenceAnswerSource)
+        }
 
         if let studentNumber = Self.numericValue(student),
            let referenceNumber = Self.numericValue(reference),
@@ -138,6 +154,27 @@ public struct RuleBasedAnalysisService: AnalysisService, Sendable {
         let line = snapshot.ocrLines.first(where: { $0.regionID == region.id }) ?? snapshot.ocrLines.first
         let quote = String((line?.rawText ?? fallbackText).prefix(240))
         return Evidence(regionID: region.id, lineID: line?.id, quote: quote.isEmpty ? nil : quote, evidenceSource: source)
+    }
+
+    private static func explicitCauseHypotheses(snapshot: RecordContentSnapshot, student: String) -> [Hypothesis] {
+        guard let evidence = evidence(snapshot: snapshot, source: .student, purpose: .studentWork, fallbackText: student) else {
+            return []
+        }
+        let cues: [(HypothesisKind, [String], String, String, String)] = [
+            (.reading, ["审题", "看错", "读错", "漏看", "忽略", "没注意"],
+             "作答中出现审题或信息遗漏线索。", "学生文字直接提到题意读取或条件关注问题，但不能证明完整原因。", "回到题干逐条圈出条件，再复述题目要求。"),
+            (.knowledge, ["不会", "不懂", "忘记", "概念", "定义", "公式", "定理"],
+             "作答中出现知识点掌握不足线索。", "学生文字直接提到概念、定义、公式或定理记忆问题，但仍需结合题目核对。", "写出本题使用的定义或公式，并标注不会使用的具体一步。"),
+            (.procedure, ["算错", "计算错误", "符号错", "单位错", "抄错", "步骤错"],
+             "作答中出现计算或步骤错误线索。", "学生文字直接提到计算、符号、单位、抄写或步骤问题，规则不替代逐步验算。", "从第一步开始逐行复算，单独核对符号、单位和抄写。"),
+            (.reasoning, ["推理错", "逻辑错", "理由不对", "证明不会"],
+             "作答中出现推理链或论证线索。", "学生文字直接提到推理、逻辑或证明问题，但无法仅凭关键词判断哪一步无效。", "把每一步的已知条件和推出结论分开写，找出第一处缺少依据的位置。")
+        ]
+        return cues.compactMap { kind, markers, summary, reason, nextAction in
+            guard markers.contains(where: { student.localizedCaseInsensitiveContains($0) }) else { return nil }
+            return Hypothesis(id: UUID(), kind: kind, summary: summary, evidence: [evidence], reason: reason,
+                              nextAction: nextAction, certainty: .tentative, userDecision: .pending)
+        }
     }
 }
 

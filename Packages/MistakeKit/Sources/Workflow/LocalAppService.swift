@@ -190,6 +190,7 @@ public actor LocalAppService: AppService {
                                    sourceRegions: sourceRegions, stem: stem, studentWork: student,
                                    referenceAnswer: reference, referenceAnswerSource: referenceSource,
                                    analysisResult: analysis, notes: notes, tags: tags,
+                                   mistakeValue: contentChanged ? .some(nil) : .none,
                                    reviewRequired: contentChanged || current.reviewRequired, reviewReasons: reasons,
                                    processingStatus: processing)
         let saved = try await repository.commit(transaction: Self.recordTransaction(id: UUID(), write: RecordWrite(record: updated, expectedRecordRevision: current.recordRevision, expectedContentRevision: current.contentRevision, preserveConfirmedClassification: true))).records.first ?? updated
@@ -207,10 +208,11 @@ public actor LocalAppService: AppService {
             try await assets.commit(transaction: transaction)
             let updatedRegions = current.sourceRegions.map { old in transformed.affectedRegions.first(where: { $0.id == old.id }) ?? old }
             let updated = Self.record(current, recordRevision: current.recordRevision + 1, contentRevision: current.contentRevision + 1,
-                                      sourceRegions: updatedRegions, stem: current.stem, studentWork: current.studentWork,
-                                      referenceAnswer: current.referenceAnswer, referenceAnswerSource: current.referenceAnswerSource,
-                                      analysisResult: current.analysisResult, notes: current.notes, tags: current.tags,
-                                      reviewRequired: true, reviewReasons: Self.addReasons(current.reviewReasons, [.staleAnalysis, .staleClassification]),
+                                       sourceRegions: updatedRegions, stem: current.stem, studentWork: current.studentWork,
+                                       referenceAnswer: current.referenceAnswer, referenceAnswerSource: current.referenceAnswerSource,
+                                       analysisResult: current.analysisResult, notes: current.notes, tags: current.tags,
+                                       mistakeValue: .some(nil),
+                                       reviewRequired: true, reviewReasons: Self.addReasons(current.reviewReasons, [.staleAnalysis, .staleClassification]),
                                       processingStatus: RecordProcessingStatus(ocr: current.processingStatus.ocr,
                                         analysis: OperationOutcome(state: .stale, error: nil, inputContentRevision: current.contentRevision),
                                         classification: OperationOutcome(state: .stale, error: nil, inputContentRevision: current.contentRevision)))
@@ -368,6 +370,12 @@ public actor LocalAppService: AppService {
         let result = try await intelligence.value.evaluate(snapshot: current.contentSnapshot,
             analysis: current.analysisResult, options: currentSettingsValue())
         guard result.inputContentRevision == expectedContentRevision else { throw AppError(code: .invalidModelOutput) }
+        let updated = Self.record(current, recordRevision: current.recordRevision + 1,
+                                  mistakeValue: .some(result))
+        let saved = try await repository.commit(transaction: Self.recordTransaction(id: UUID(), write: RecordWrite(
+            record: updated, expectedRecordRevision: current.recordRevision,
+            expectedContentRevision: current.contentRevision, preserveConfirmedClassification: true))).records.first ?? updated
+        await emitRecord(kind: .upserted, record: saved)
         return result
     }
 
@@ -434,6 +442,21 @@ public actor LocalAppService: AppService {
         let updated = Self.record(current, recordRevision: current.recordRevision + 1, reviewState: state)
         let saved = try await repository.commit(transaction: Self.recordTransaction(id: UUID(), write: RecordWrite(record: updated, expectedRecordRevision: current.recordRevision, expectedContentRevision: current.contentRevision, preserveConfirmedClassification: true))).records.first ?? updated
         await emitRecord(kind: .upserted, record: saved); return saved
+    }
+
+    public func setArchived(id: UUID, archived: Bool, expectedRecordRevision: Int) async throws -> MistakeRecord {
+        try beginOperation()
+        defer { endOperation() }
+
+        guard let current = try await repository.get(id: id),
+              current.recordRevision == expectedRecordRevision else { throw AppError(code: .revisionConflict) }
+        guard current.isArchived != archived else { return current }
+        let updated = Self.record(current, recordRevision: current.recordRevision + 1, isArchived: archived)
+        let saved = try await repository.commit(transaction: Self.recordTransaction(id: UUID(), write: RecordWrite(
+            record: updated, expectedRecordRevision: current.recordRevision,
+            expectedContentRevision: current.contentRevision, preserveConfirmedClassification: true))).records.first ?? updated
+        await emitRecord(kind: .upserted, record: saved)
+        return saved
     }
 
     public func delete(ids: [UUID], expectedVersions: [RecordVersion]) async throws -> DeletionToken {
@@ -763,7 +786,7 @@ public actor LocalAppService: AppService {
     private static func job(_ job: ProcessingJob, state: JobState? = nil, stage: JobStage? = nil, producedRecordIDs: [UUID]? = nil, attempt: Int? = nil, error: AppError? = nil, finishedAt: Date? = nil, startedAt: Date? = nil, completedUnits: Int? = nil, totalUnits: Int? = nil, inputContentRevision: Int? = nil, updatedAt: Date? = nil) -> ProcessingJob { ProcessingJob(id: job.id, batchID: job.batchID, assetID: job.assetID, producedRecordIDs: producedRecordIDs ?? job.producedRecordIDs, state: state ?? job.state, stage: stage ?? job.stage, attempt: attempt ?? job.attempt, completedUnits: completedUnits ?? job.completedUnits, totalUnits: totalUnits ?? job.totalUnits, error: error, inputContentRevision: inputContentRevision ?? job.inputContentRevision, createdAt: job.createdAt, updatedAt: updatedAt ?? Date(), startedAt: startedAt ?? job.startedAt, finishedAt: finishedAt) }
     private static func emptyRecord(id: UUID, regions: [SourceRegion], ocrLines: [OCRLine], stem: String, studentWork: String, ocrOutcome: OperationOutcome, reviewReasons: [ReviewReason] = [.unclassified]) -> MistakeRecord { let classification = ClassificationResult(subjectID: nil, candidates: [], primaryNodeID: nil, assignmentState: .unclassified, assignedBy: .none, taxonomyVersion: "0", inputContentRevision: 1, suggestedTags: []); return MistakeRecord(id: id, schemaVersion: ContractSchema.schemaVersion, recordRevision: 1, contentRevision: 1, createdAt: Date(), updatedAt: Date(), sourceRegions: regions, ocrLines: ocrLines, stem: EditableText(rawText: stem, correctedText: nil, provenance: .ocr, isLocked: false), studentWork: EditableText(rawText: studentWork, correctedText: nil, provenance: .ocr, isLocked: false), referenceAnswer: nil, referenceAnswerSource: nil, analysisResult: nil, classification: classification, notes: "", tags: [], reviewState: .new, reviewRequired: true, reviewReasons: reviewReasons, processingStatus: RecordProcessingStatus(ocr: ocrOutcome, analysis: OperationOutcome(state: .pending, error: nil, inputContentRevision: 1), classification: OperationOutcome(state: .pending, error: nil, inputContentRevision: 1))) }
     private static func manualRecord(draft: ManualRecordDraft) -> MistakeRecord { emptyRecord(id: UUID(), regions: [], ocrLines: [], stem: draft.stem, studentWork: draft.studentWork, ocrOutcome: OperationOutcome(state: .unavailable, error: nil, inputContentRevision: 1), reviewReasons: [.unclassified]).withManualFields(notes: draft.notes, tags: draft.tags, referenceAnswer: draft.referenceAnswer) }
-    private static func record(_ base: MistakeRecord, recordRevision: Int? = nil, contentRevision: Int? = nil, sourceRegions: [SourceRegion]? = nil, ocrLines: [OCRLine]? = nil, stem: EditableText? = nil, studentWork: EditableText? = nil, referenceAnswer: EditableText?? = nil, referenceAnswerSource: ReferenceAnswerSource?? = nil, analysisResult: AnalysisResult?? = nil, classification: ClassificationResult? = nil, notes: String? = nil, tags: [String]? = nil, reviewState: ReviewState? = nil, reviewRequired: Bool? = nil, reviewReasons: [ReviewReason]? = nil, processingStatus: RecordProcessingStatus? = nil, updatedAt: Date? = nil) -> MistakeRecord { MistakeRecord(id: base.id, schemaVersion: base.schemaVersion, recordRevision: recordRevision ?? base.recordRevision, contentRevision: contentRevision ?? base.contentRevision, createdAt: base.createdAt, updatedAt: updatedAt ?? Date(), sourceRegions: sourceRegions ?? base.sourceRegions, ocrLines: ocrLines ?? base.ocrLines, stem: stem ?? base.stem, studentWork: studentWork ?? base.studentWork, referenceAnswer: referenceAnswer ?? base.referenceAnswer, referenceAnswerSource: referenceAnswerSource ?? base.referenceAnswerSource, analysisResult: analysisResult ?? base.analysisResult, classification: classification ?? base.classification, notes: notes ?? base.notes, tags: tags ?? base.tags, reviewState: reviewState ?? base.reviewState, reviewRequired: reviewRequired ?? base.reviewRequired, reviewReasons: reviewReasons ?? base.reviewReasons, processingStatus: processingStatus ?? base.processingStatus) }
+    private static func record(_ base: MistakeRecord, recordRevision: Int? = nil, contentRevision: Int? = nil, sourceRegions: [SourceRegion]? = nil, ocrLines: [OCRLine]? = nil, stem: EditableText? = nil, studentWork: EditableText? = nil, referenceAnswer: EditableText?? = nil, referenceAnswerSource: ReferenceAnswerSource?? = nil, analysisResult: AnalysisResult?? = nil, classification: ClassificationResult? = nil, notes: String? = nil, tags: [String]? = nil, reviewState: ReviewState? = nil, reviewRequired: Bool? = nil, reviewReasons: [ReviewReason]? = nil, processingStatus: RecordProcessingStatus? = nil, isArchived: Bool? = nil, mistakeValue: MistakeValueResult?? = nil, updatedAt: Date? = nil) -> MistakeRecord { MistakeRecord(id: base.id, schemaVersion: base.schemaVersion, recordRevision: recordRevision ?? base.recordRevision, contentRevision: contentRevision ?? base.contentRevision, createdAt: base.createdAt, updatedAt: updatedAt ?? Date(), sourceRegions: sourceRegions ?? base.sourceRegions, ocrLines: ocrLines ?? base.ocrLines, stem: stem ?? base.stem, studentWork: studentWork ?? base.studentWork, referenceAnswer: referenceAnswer ?? base.referenceAnswer, referenceAnswerSource: referenceAnswerSource ?? base.referenceAnswerSource, analysisResult: analysisResult ?? base.analysisResult, classification: classification ?? base.classification, notes: notes ?? base.notes, tags: tags ?? base.tags, reviewState: reviewState ?? base.reviewState, reviewRequired: reviewRequired ?? base.reviewRequired, reviewReasons: reviewReasons ?? base.reviewReasons, processingStatus: processingStatus ?? base.processingStatus, isArchived: isArchived ?? base.isArchived, mistakeValue: mistakeValue ?? base.mistakeValue) }
     private static func addReasons(_ base: [ReviewReason], _ additions: [ReviewReason]) -> [ReviewReason] { var result = base; for value in additions where !result.contains(value) { result.append(value) }; return result }
     private static func nextVersion(_ value: String) -> String { value + ".next" }
     private static func applyAutomaticPolicy(_ result: ClassificationResult, policy: AutoArchivePolicy) -> ClassificationResult { guard let candidate = result.candidates.first, candidate.source == .rule, candidate.calibrated, let id = candidate.validationPolicyID, let rule = policy.enabledRules.first(where: { $0.id == id && $0.nodeID == candidate.nodeID }), rule.minimumScore.map({ (candidate.score ?? -Double.infinity) >= $0 }) ?? true, !candidate.evidence.isEmpty else { return result }; return ClassificationResult(subjectID: result.subjectID, candidates: result.candidates, primaryNodeID: candidate.nodeID, assignmentState: .automatic, assignedBy: .rule, taxonomyVersion: result.taxonomyVersion, inputContentRevision: result.inputContentRevision, suggestedTags: result.suggestedTags) }
@@ -773,5 +796,5 @@ public actor LocalAppService: AppService {
 }
 
 private extension MistakeRecord {
-    func withManualFields(notes: String, tags: [String], referenceAnswer: String?) -> MistakeRecord { MistakeRecord(id: id, schemaVersion: schemaVersion, recordRevision: recordRevision, contentRevision: contentRevision, createdAt: createdAt, updatedAt: updatedAt, sourceRegions: sourceRegions, ocrLines: ocrLines, stem: stem, studentWork: studentWork, referenceAnswer: referenceAnswer.map { EditableText(rawText: $0, correctedText: nil, provenance: .user, isLocked: false) }, referenceAnswerSource: referenceAnswer.map { _ in ReferenceAnswerSource(provenance: .user, label: "手动录入", regionIDs: []) }, analysisResult: analysisResult, classification: classification, notes: notes, tags: tags, reviewState: reviewState, reviewRequired: reviewRequired, reviewReasons: reviewReasons, processingStatus: processingStatus) }
+    func withManualFields(notes: String, tags: [String], referenceAnswer: String?) -> MistakeRecord { MistakeRecord(id: id, schemaVersion: schemaVersion, recordRevision: recordRevision, contentRevision: contentRevision, createdAt: createdAt, updatedAt: updatedAt, sourceRegions: sourceRegions, ocrLines: ocrLines, stem: stem, studentWork: studentWork, referenceAnswer: referenceAnswer.map { EditableText(rawText: $0, correctedText: nil, provenance: .user, isLocked: false) }, referenceAnswerSource: referenceAnswer.map { _ in ReferenceAnswerSource(provenance: .user, label: "手动录入", regionIDs: []) }, analysisResult: analysisResult, classification: classification, notes: notes, tags: tags, reviewState: reviewState, reviewRequired: reviewRequired, reviewReasons: reviewReasons, processingStatus: processingStatus, isArchived: isArchived, mistakeValue: mistakeValue) }
 }

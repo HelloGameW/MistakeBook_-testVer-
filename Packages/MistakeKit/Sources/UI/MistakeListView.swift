@@ -5,29 +5,25 @@ import Contracts
 @MainActor
 struct MistakeListView: View {
     let service: any AppService
-    @Binding var selectedRecordID: UUID?
     let onImport: () -> Void
+    let onSettings: () -> Void
 
     @StateObject private var model: MistakeListViewModel
     @State private var showingExport = false
 
-    init(service: any AppService, selectedRecordID: Binding<UUID?>, onImport: @escaping () -> Void) {
+    init(service: any AppService, onImport: @escaping () -> Void, onSettings: @escaping () -> Void) {
         self.service = service
-        self._selectedRecordID = selectedRecordID
         self.onImport = onImport
+        self.onSettings = onSettings
         _model = StateObject(wrappedValue: MistakeListViewModel(service: service))
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationStack {
             listColumn
-        } detail: {
-            if let selectedRecordID {
-                RecordDetailView(service: service, recordID: selectedRecordID)
-            } else {
-                ContentUnavailableView("选择一道错题", systemImage: "doc.text.magnifyingglass",
-                                       description: Text("从列表选择题目，查看原图、识别文本、错因证据和归档。"))
-            }
+                .navigationDestination(for: UUID.self) { recordID in
+                    RecordDetailView(service: service, recordID: recordID)
+                }
         }
         .sheet(isPresented: $showingExport) {
             let selected = model.records.filter { model.selectedIDs.contains($0.id) }
@@ -42,6 +38,17 @@ struct MistakeListView: View {
             if let errorMessage = model.errorMessage {
                 ErrorBanner(message: errorMessage)
                     .listRowSeparator(.hidden)
+            }
+
+            if let actionMessage = model.actionMessage {
+                HStack {
+                    NoticeBanner(message: actionMessage)
+                    if model.undoDeletionToken != nil {
+                        Button("撤销") { model.undoDelete() }
+                            .buttonStyle(.bordered)
+                    }
+                }
+                .listRowSeparator(.hidden)
             }
 
             if model.reviewRequiredOnly {
@@ -70,12 +77,21 @@ struct MistakeListView: View {
                 ForEach(model.records) { record in
                     recordRow(record)
                         .listRowInsets(EdgeInsets(top: 8, leading: 4, bottom: 8, trailing: 4))
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button { model.archive(record) } label: {
+                                Label("归档", systemImage: "archivebox")
+                            }
+                            .tint(.blue)
+                            Button(role: .destructive) { model.delete(record) } label: {
+                                Label("删除", systemImage: "trash")
+                            }
+                        }
                 }
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("错题")
-        .searchable(text: $model.searchText, prompt: "搜索题干、笔记或归档")
+        .searchable(text: $model.searchText, prompt: "搜索题干、笔记或知识点")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
@@ -102,6 +118,12 @@ struct MistakeListView: View {
                     }
                     .buttonStyle(.borderedProminent)
                 }
+                Button {
+                    onSettings()
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("设置")
             }
             ToolbarItem(placement: .bottomBar) {
                 filterMenu
@@ -111,63 +133,72 @@ struct MistakeListView: View {
         .onChange(of: model.subjectID) { _, _ in model.refresh() }
         .onChange(of: model.taxonomyNodeID) { _, _ in model.refresh() }
         .onChange(of: model.reviewRequiredOnly) { _, _ in model.refresh() }
+        .onAppear { model.refresh() }
         .refreshable { model.refresh() }
     }
 
     @ViewBuilder
     private func recordRow(_ record: MistakeRecord) -> some View {
-        Button {
-            if model.selectionMode {
-                model.toggleSelection(for: record.id)
-            } else {
-                selectedRecordID = record.id
+        if model.selectionMode {
+            Button { model.toggleSelection(for: record.id) } label: {
+                recordRowContent(record)
             }
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                if model.selectionMode {
-                    Image(systemName: model.selectedIDs.contains(record.id) ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(model.selectedIDs.contains(record.id) ? Color.accentColor : .secondary)
-                        .font(.title3)
-                        .accessibilityHidden(true)
-                }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: record.id) {
+                recordRowContent(record)
+            }
+            .buttonStyle(.plain)
+        }
+    }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(record.stem.displayText.isEmpty ? "未填写题干" : record.stem.displayText)
-                        .font(.body.weight(.medium))
-                        .foregroundStyle(.primary)
-                        .lineLimit(3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+    private func recordRowContent(_ record: MistakeRecord) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            if model.selectionMode {
+                Image(systemName: model.selectedIDs.contains(record.id) ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(model.selectedIDs.contains(record.id) ? Color.accentColor : .secondary)
+                    .font(.title3)
+                    .accessibilityHidden(true)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(record.stem.displayText.isEmpty ? "未填写题干" : record.stem.displayText)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 8) {
+                    Text(record.classification.subjectID ?? "待分类")
+                    if let name = model.taxonomyName(for: record.classification.primaryNodeID) {
+                        Text(name)
+                    }
+                    Text(UIStrings.reviewState(record.reviewState))
+                    if let value = record.mistakeValue, !record.isMistakeValueStale {
+                        Text("重要度 \(Int((value.overallScore * 100).rounded()))")
+                            .foregroundStyle(value.level == .high ? .red : (value.level == .medium ? .orange : .secondary))
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                if record.reviewRequired || record.isAnalysisStale || record.isMistakeValueStale {
                     HStack(spacing: 8) {
-                        Text(record.classification.subjectID ?? "待分类")
-                        if let name = model.taxonomyName(for: record.classification.primaryNodeID) {
-                            Text(name)
-                        }
-                        Text(UIStrings.reviewState(record.reviewState))
+                        if record.reviewRequired { Label("待确认", systemImage: "questionmark.circle") }
+                        if record.isAnalysisStale { Label("分析基于旧内容", systemImage: "clock.arrow.circlepath") }
+                        if record.isMistakeValueStale { Label("重要度待更新", systemImage: "gauge.with.dots.needle.33percent") }
                     }
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-                    if record.reviewRequired || record.isAnalysisStale {
-                        HStack(spacing: 8) {
-                            if record.reviewRequired {
-                                Label("待确认", systemImage: "questionmark.circle")
-                            }
-                            if record.isAnalysisStale {
-                                Label("分析基于旧内容", systemImage: "clock.arrow.circlepath")
-                            }
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                    }
+                    .foregroundStyle(.orange)
                 }
+            }
 
-                Image(systemName: model.selectionMode ? "" : "chevron.forward")
+            if !model.selectionMode {
+                Image(systemName: "chevron.forward")
                     .foregroundStyle(.tertiary)
                     .accessibilityHidden(true)
             }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityLabel(record.stem.displayText.isEmpty ? "未填写题干" : record.stem.displayText)
         .accessibilityHint(model.selectionMode ? "切换选择状态" : "打开错题详情")
@@ -210,5 +241,5 @@ struct MistakeListView: View {
     }
 }
 
-extension MistakeRecord: Identifiable {}
+private extension MistakeRecord: Identifiable {}
 #endif

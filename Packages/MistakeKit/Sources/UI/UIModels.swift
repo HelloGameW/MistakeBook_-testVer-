@@ -15,6 +15,8 @@ final class MistakeListViewModel: ObservableObject {
     @Published var reviewRequiredOnly = false
     @Published var isLoading = false
     @Published var errorMessage: String?
+    @Published var actionMessage: String?
+    @Published var undoDeletionToken: DeletionToken?
     @Published var selectionMode = false
     @Published var selectedIDs: Set<UUID> = []
 
@@ -73,9 +75,131 @@ final class MistakeListViewModel: ObservableObject {
         selectionMode = false
     }
 
+    func archive(_ record: MistakeRecord) {
+        Task { [weak self, service = self.service] in
+            do {
+                _ = try await service.setArchived(id: record.id, archived: true,
+                                                   expectedRecordRevision: record.recordRevision)
+                guard let self else { return }
+                self.records.removeAll { $0.id == record.id }
+                self.selectedIDs.remove(record.id)
+                self.actionMessage = "已归档，可在“归档”中恢复。"
+            } catch {
+                guard let self else { return }
+                self.errorMessage = UIErrorMessage.from(error)
+            }
+        }
+    }
+
+    func delete(_ record: MistakeRecord) {
+        Task { [weak self, service = self.service] in
+            do {
+                let token = try await service.delete(ids: [record.id], expectedVersions: [RecordVersion(
+                    recordID: record.id, recordRevision: record.recordRevision, contentRevision: record.contentRevision)])
+                guard let self else { return }
+                self.records.removeAll { $0.id == record.id }
+                self.selectedIDs.remove(record.id)
+                self.undoDeletionToken = token
+                self.actionMessage = "已删除。可在本提示消失前撤销。"
+            } catch {
+                guard let self else { return }
+                self.errorMessage = UIErrorMessage.from(error)
+            }
+        }
+    }
+
+    func undoDelete() {
+        guard let token = undoDeletionToken else { return }
+        Task { [weak self, service = self.service] in
+            do {
+                _ = try await service.restore(token: token)
+                guard let self else { return }
+                self.undoDeletionToken = nil
+                self.actionMessage = "已恢复删除的题目。"
+                self.refresh()
+            } catch {
+                guard let self else { return }
+                self.errorMessage = UIErrorMessage.from(error)
+            }
+        }
+    }
+
     func taxonomyName(for nodeID: String?) -> String? {
         guard let nodeID else { return nil }
         return taxonomySnapshot.nodes.first(where: { $0.id == nodeID })?.name
+    }
+}
+
+@MainActor
+final class ArchivedRecordListViewModel: ObservableObject {
+    @Published var records: [MistakeRecord] = []
+    @Published var searchText = ""
+    @Published var isLoading = false
+    @Published var errorMessage: String?
+    @Published var actionMessage: String?
+
+    private let service: any AppService
+    private var loadTask: Task<Void, Never>?
+
+    init(service: any AppService) {
+        self.service = service
+        refresh()
+    }
+
+    deinit {
+        loadTask?.cancel()
+    }
+
+    func refresh() {
+        loadTask?.cancel()
+        isLoading = true
+        let queryText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        loadTask = Task { [weak self, service = self.service] in
+            do {
+                let query = RecordQuery(text: queryText, subjectID: nil, taxonomyNodeID: nil,
+                                        includeDescendants: true, reviewStates: [], reviewRequiredOnly: false,
+                                        includeArchived: true, includeDeleted: false, sort: .updatedNewest)
+                let page = try await service.list(query: query, page: PageRequest(cursor: nil, limit: 200))
+                guard !Task.isCancelled, let self else { return }
+                self.records = page.records.filter { $0.isArchived }
+                self.errorMessage = nil
+                self.isLoading = false
+            } catch {
+                guard !Task.isCancelled, let self else { return }
+                self.errorMessage = UIErrorMessage.from(error)
+                self.isLoading = false
+            }
+        }
+    }
+
+    func unarchive(_ record: MistakeRecord) {
+        Task { [weak self, service = self.service] in
+            do {
+                _ = try await service.setArchived(id: record.id, archived: false,
+                                                   expectedRecordRevision: record.recordRevision)
+                guard let self else { return }
+                self.records.removeAll { $0.id == record.id }
+                self.actionMessage = "已移回错题列表。"
+            } catch {
+                guard let self else { return }
+                self.errorMessage = UIErrorMessage.from(error)
+            }
+        }
+    }
+
+    func delete(_ record: MistakeRecord) {
+        Task { [weak self, service = self.service] in
+            do {
+                _ = try await service.delete(ids: [record.id], expectedVersions: [RecordVersion(
+                    recordID: record.id, recordRevision: record.recordRevision, contentRevision: record.contentRevision)])
+                guard let self else { return }
+                self.records.removeAll { $0.id == record.id }
+                self.actionMessage = "已删除。"
+            } catch {
+                guard let self else { return }
+                self.errorMessage = UIErrorMessage.from(error)
+            }
+        }
     }
 }
 

@@ -39,7 +39,10 @@ struct RecordDetailView: View {
                         sourceSection(record)
                         editorSection(record)
                         analysisSection(record)
-                        MistakeValueSection(service: service, record: record)
+                        MistakeValueSection(service: service, record: record) { updated in
+                            model.record = updated
+                            model.actionMessage = "重要度已保存，可在题目列表中直接查看。"
+                        }
                         classificationSection(record)
                         reviewSection(record)
                     }
@@ -172,6 +175,9 @@ struct RecordDetailView: View {
             if let analysis = record.analysisResult {
                 Text(UIStrings.analysisStatus(analysis.status))
                     .font(.subheadline.weight(.medium))
+                if analysis.status == .insufficientEvidence {
+                    NoticeBanner(message: "证据不足时不会硬猜错因；请补充学生作答、参考答案或教师批注后再分析。")
+                }
                 ForEach(analysis.hypotheses, id: \.id) { hypothesis in
                     HypothesisCard(hypothesis: hypothesis,
                                   onDecision: { decision in model.decide(hypothesis: hypothesis, decision: decision) })
@@ -303,6 +309,7 @@ struct HypothesisCard: View {
 struct MistakeValueSection: View {
     let service: any AppService
     let record: MistakeRecord
+    let onUpdated: (MistakeRecord) -> Void
     @State private var result: MistakeValueResult?
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -317,7 +324,7 @@ struct MistakeValueSection: View {
                     .disabled(isLoading)
             }
             if let errorMessage { ErrorBanner(message: errorMessage) }
-            if let result {
+            if let result = result ?? record.mistakeValue, !record.isMistakeValueStale {
                 HStack(alignment: .firstTextBaseline) {
                     Text("\(Int((result.overallScore * 100).rounded()))")
                         .font(.system(size: 32, weight: .bold, design: .rounded))
@@ -333,7 +340,7 @@ struct MistakeValueSection: View {
                 valueRow("复习优先级", result.dimensions.reviewPriority)
                 Text(result.reason).font(.caption).foregroundStyle(.secondary)
             } else {
-                Text("量化结果不写入错题主记录，可随模型或规则更新重新评估。")
+                Text(record.isMistakeValueStale ? "题目内容已修改，原重要度已失效，请重新评估。" : "尚未评估重要度；评估后会保存到题目并显示在列表中。")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -352,6 +359,8 @@ struct MistakeValueSection: View {
         Task {
             do {
                 result = try await service.evaluateValue(id: record.id, expectedContentRevision: record.contentRevision)
+                let refreshed = try await service.get(id: record.id)
+                onUpdated(refreshed)
                 errorMessage = nil
             } catch { errorMessage = UIErrorMessage.from(error) }
             isLoading = false

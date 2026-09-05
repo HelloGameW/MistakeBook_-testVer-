@@ -87,4 +87,24 @@ final class IntelligenceBehaviorTests: XCTestCase {
         XCTAssertTrue(result.hypotheses.isEmpty)
     }
 
+    func testRuleAnalysisUsesExplicitStudentCauseCueWithoutReference() async throws {
+        let assetID = UUID()
+        let region = SourceRegion(id: UUID(), assetID: assetID, normalizedRect: .fullPage,
+                                  purpose: .studentWork, isUserConfirmed: false)
+        let line = OCRLine(id: UUID(), regionID: region.id, assetID: assetID,
+                           rawText: "我审题时漏看了单位，导致计算错误。", confidence: nil,
+                           scriptStyle: .unknown, normalizedRect: .fullPage)
+        let snapshot = RecordContentSnapshot(
+            recordID: UUID(), contentRevision: 1, sourceRegions: [region], ocrLines: [line],
+            stem: EditableText(rawText: "计算题", correctedText: nil, provenance: .user, isLocked: false),
+            studentWork: EditableText(rawText: line.rawText, correctedText: nil, provenance: .user, isLocked: false),
+            referenceAnswer: nil, referenceAnswerSource: nil)
+        let result = try await RuleBasedAnalysisService().analyze(
+            snapshot: snapshot, options: AnalysisOptions(useEnhancedModel: false, language: "zh-Hans", timeoutSeconds: 1))
+        XCTAssertEqual(result.status, .hypotheses)
+        XCTAssertTrue(result.hypotheses.contains { $0.kind == .reading })
+        XCTAssertTrue(result.hypotheses.contains { $0.kind == .procedure })
+        XCTAssertTrue(result.hypotheses.flatMap(\.evidence).contains { $0.lineID == line.id })
+    }
+
 }

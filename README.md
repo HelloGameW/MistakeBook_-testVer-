@@ -1,7 +1,6 @@
 # MistakeBook
 
-MistakeBook 是面向 iOS/iPadOS 26 的错题整理应用。
-Model gpt 6(max),gpt luna(max)
+MistakeBook 是面向 iOS/iPadOS 26 的错题整理应用。当前目录已经是融合后的单一工程，不再按开发阶段拆分。
 
 ## 核心能力
 

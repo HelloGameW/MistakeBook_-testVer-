@@ -54,10 +54,40 @@ enum NetworkSupport {
 struct OpenAICompatibleClient: Sendable {
     private struct Response: Decodable {
         struct Choice: Decodable {
-            struct Message: Decodable { let content: String }
+            struct Message: Decodable {
+                let content: MessageContent?
+                let reasoningContent: String?
+
+                enum CodingKeys: String, CodingKey { case content, reasoningContent = "reasoning_content" }
+            }
             let message: Message
         }
         let choices: [Choice]
+    }
+
+    private enum MessageContent: Decodable {
+        case text(String)
+        case parts([Part])
+
+        struct Part: Decodable {
+            let text: String?
+        }
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if let value = try? container.decode(String.self) {
+                self = .text(value)
+            } else {
+                self = .parts(try container.decode([Part].self))
+            }
+        }
+
+        var text: String {
+            switch self {
+            case .text(let value): value
+            case .parts(let values): values.compactMap(\.text).joined()
+            }
+        }
     }
 
     func requestJSON(prompt: String, imageDataURI: String? = nil,
@@ -79,9 +109,16 @@ struct OpenAICompatibleClient: Sendable {
             "model": configuration.model,
             "messages": [["role": "user", "content": content]],
             "response_format": ["type": "json_object"],
+            "max_tokens": 8192,
             "temperature": 0.1
         ]
-        let encoded = try JSONSerialization.data(withJSONObject: body)
+        var requestBody = body
+        if configuration.isDeepSeek {
+            // DeepSeek V4 enables thinking by default. Structured extraction is
+            // more reliable and cheaper with thinking explicitly disabled.
+            requestBody["thinking"] = ["type": "disabled"]
+        }
+        let encoded = try JSONSerialization.data(withJSONObject: requestBody)
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.timeoutInterval = configuration.timeoutSeconds
@@ -90,8 +127,28 @@ struct OpenAICompatibleClient: Sendable {
         request.httpBody = encoded
         let data = try await NetworkSupport.checkedData(for: request)
         guard let response = try? JSONDecoder().decode(Response.self, from: data),
-              let text = response.choices.first?.message.content,
-              let json = text.data(using: .utf8) else { throw AppError(code: .invalidModelOutput) }
+              let message = response.choices.first?.message else {
+            throw AppError(code: .invalidModelOutput)
+        }
+        let contentText = message.content?.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = (contentText?.isEmpty == false ? contentText : nil) ?? message.reasoningContent
+        guard let text, let json = Self.extractJSONObject(from: text) else {
+            throw AppError(code: .invalidModelOutput)
+        }
         return json
+    }
+
+    private static func extractJSONObject(from text: String) -> Data? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let data = trimmed.data(using: .utf8), (try? JSONSerialization.jsonObject(with: data)) != nil {
+            return data
+        }
+        let withoutFence = trimmed
+            .replacingOccurrences(of: "```json", with: "", options: .caseInsensitive)
+            .replacingOccurrences(of: "```", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let start = withoutFence.firstIndex(of: "{"),
+              let end = withoutFence.lastIndex(of: "}"), start <= end else { return nil }
+        return String(withoutFence[start...]).data(using: .utf8)
     }
 }

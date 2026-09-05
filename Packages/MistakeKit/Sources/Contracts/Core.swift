@@ -130,6 +130,11 @@ public extension MistakeRecord {
         return analysisResult.inputContentRevision != contentRevision
     }
 
+    public var isMistakeValueStale: Bool {
+        guard let mistakeValue else { return false }
+        return mistakeValue.inputContentRevision != contentRevision
+    }
+
     var contentSnapshot: RecordContentSnapshot {
         RecordContentSnapshot(recordID: id, contentRevision: contentRevision,
             sourceRegions: sourceRegions, ocrLines: ocrLines, stem: stem, studentWork: studentWork,

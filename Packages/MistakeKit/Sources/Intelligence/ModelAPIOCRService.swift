@@ -1,5 +1,8 @@
 import Foundation
 import Contracts
+#if canImport(UIKit)
+import UIKit
+#endif
 
 public struct ModelAPIOCRService: OCRService, Sendable {
     private let credentialStore: any CredentialStore
@@ -13,9 +16,30 @@ public struct ModelAPIOCRService: OCRService, Sendable {
         try Task.checkCancellation()
         guard let configuration = options.modelAPI,
               let key = try await credentialStore.read(kind: .ocrModelAPIKey) else { throw AppError(code: .invalidConfiguration) }
+        if configuration.isDeepSeek && !configuration.isDeepSeekVisionModel {
+            throw AppError(code: .invalidConfiguration)
+        }
+        let requestBytes: Data
         let mime: String
-        switch image.mediaType { case .jpeg: mime = "image/jpeg"; case .png: mime = "image/png"; case .heic: mime = "image/heic" }
-        let uri = "data:\(mime);base64,\(image.bytes.base64EncodedString())"
+        switch image.mediaType {
+        case .jpeg:
+            requestBytes = image.bytes
+            mime = "image/jpeg"
+        case .png:
+            requestBytes = image.bytes
+            mime = "image/png"
+        case .heic:
+            #if canImport(UIKit)
+            guard let uiImage = UIImage(data: image.bytes), let jpeg = uiImage.jpegData(compressionQuality: 0.9) else {
+                throw AppError(code: .unsupportedInput)
+            }
+            requestBytes = jpeg
+            mime = "image/jpeg"
+            #else
+            throw AppError(code: .unsupportedInput)
+            #endif
+        }
+        let uri = "data:\(mime);base64,\(requestBytes.base64EncodedString())"
         let json = try await client.requestJSON(prompt: Self.prompt(languages: options.languages), imageDataURI: uri,
                                                 configuration: configuration, apiKey: key)
         let envelope: Envelope

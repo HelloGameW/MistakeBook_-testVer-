@@ -27,7 +27,8 @@ public struct PreviewAppService: AppService {
     }
     public func list(query: RecordQuery, page: PageRequest) async throws -> RecordPage {
         try Task.checkCancellation()
-        return RecordPage(records: records, nextCursor: nil)
+        let filtered = records.filter { query.includeArchived || !$0.isArchived }
+        return RecordPage(records: Array(filtered.prefix(page.limit)), nextCursor: nil)
     }
     public func get(id: UUID) async throws -> MistakeRecord {
         try Task.checkCancellation()
@@ -95,6 +96,10 @@ public struct PreviewAppService: AppService {
         throw AppError(code: .featureUnavailable)
     }
     public func updateReviewState(id: UUID, state: ReviewState, expectedRecordRevision: Int) async throws -> MistakeRecord {
+        try Task.checkCancellation()
+        throw AppError(code: .featureUnavailable)
+    }
+    public func setArchived(id: UUID, archived: Bool, expectedRecordRevision: Int) async throws -> MistakeRecord {
         try Task.checkCancellation()
         throw AppError(code: .featureUnavailable)
     }
