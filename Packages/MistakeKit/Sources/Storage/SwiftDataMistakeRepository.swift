@@ -335,7 +335,7 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
                   let tombstone = try context.fetch(FetchDescriptor<StoredTombstoneEntity>()).first(where: { $0.idString == id.uuidString }),
                   let value = try? decode(RecordTombstone.self, tombstone.payload), value.lastRecordRevision == transaction.recordWrites.first(where: { $0.record.id == id })?.expectedRecordRevision else { throw AppError(code: .revisionConflict) }
         }
-        let jobEntities = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<StoredJobEntity>()).compactMap { entity in
+        let jobEntities: [UUID: StoredJobEntity] = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<StoredJobEntity>()).compactMap { (entity: StoredJobEntity) -> (UUID, StoredJobEntity)? in
             guard let id = UUID(uuidString: entity.idString) else { return nil }
             return (id, entity)
         })
@@ -345,14 +345,14 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
                 guard let current = try? decode(ProcessingJob.self, existing.payload),
                       let stateGuard = guards[job.id], current.state == stateGuard.expectedState,
                       current.attempt == stateGuard.expectedAttempt, job.attempt >= current.attempt else { throw AppError(code: .revisionConflict) }
-                if current.state == .succeeded || current.state == .failed || current.state == .cancelled {
+                if current.state == JobState.succeeded || current.state == JobState.failed || current.state == JobState.cancelled {
                     if job.attempt == current.attempt && job.state != current.state { throw AppError(code: .revisionConflict) }
-                    if job.attempt > current.attempt && (job.attempt != current.attempt + 1 || job.state != .queued) { throw AppError(code: .revisionConflict) }
+                    if job.attempt > current.attempt && (job.attempt != current.attempt + 1 || job.state != JobState.queued) { throw AppError(code: .revisionConflict) }
                 }
                 guard current.assetID == job.assetID, current.batchID == job.batchID else { throw AppError(code: .revisionConflict) }
             } else if guards[job.id] != nil { throw AppError(code: .revisionConflict) }
         }
-        let batchEntities = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<StoredBatchEntity>()).compactMap { entity in
+        let batchEntities: [UUID: StoredBatchEntity] = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<StoredBatchEntity>()).compactMap { (entity: StoredBatchEntity) -> (UUID, StoredBatchEntity)? in
             guard let id = UUID(uuidString: entity.idString) else { return nil }
             return (id, entity)
         })
