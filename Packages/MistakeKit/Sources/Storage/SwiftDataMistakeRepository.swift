@@ -297,7 +297,7 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
         if let seen = try context.fetch(FetchDescriptor<StoredTransactionEntity>()).first(where: { $0.idString == transaction.id.uuidString }) {
             return try decode(RepositoryCommit.self, seen.payload)
         }
-        var entities = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<StoredRecordEntity>()).compactMap { entity in
+        var entities: [UUID: StoredRecordEntity] = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<StoredRecordEntity>()).compactMap { (entity: StoredRecordEntity) -> (UUID, StoredRecordEntity)? in
             guard let id = UUID(uuidString: entity.idString) else { return nil }
             return (id, entity)
         })
@@ -314,7 +314,7 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
                       write.record.recordRevision == currentRecord.recordRevision + 1 else { throw AppError(code: .revisionConflict) }
                 if let expected = write.expectedContentRevision, expected != currentRecord.contentRevision { throw AppError(code: .revisionConflict) }
                 var value = write.record
-                if write.preserveConfirmedClassification && currentRecord.classification.assignmentState == .userConfirmed {
+                if write.preserveConfirmedClassification && currentRecord.classification.assignmentState == AssignmentState.userConfirmed {
                     value = Self.withClassification(value, classification: currentRecord.classification, advanceRevision: false)
                 }
                 mergedWrites.append((value, current, false)); records.append(value)
