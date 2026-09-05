@@ -190,9 +190,9 @@ public actor LocalAppService: AppService {
                                    sourceRegions: sourceRegions, stem: stem, studentWork: student,
                                    referenceAnswer: reference, referenceAnswerSource: referenceSource,
                                    analysisResult: analysis, notes: notes, tags: tags,
-                                   mistakeValue: contentChanged ? .some(nil) : .none,
                                    reviewRequired: contentChanged || current.reviewRequired, reviewReasons: reasons,
-                                   processingStatus: processing)
+                                   processingStatus: processing,
+                                   mistakeValue: contentChanged ? .some(nil) : .none)
         let saved = try await repository.commit(transaction: Self.recordTransaction(id: UUID(), write: RecordWrite(record: updated, expectedRecordRevision: current.recordRevision, expectedContentRevision: current.contentRevision, preserveConfirmedClassification: true))).records.first ?? updated
         await emitRecord(kind: .upserted, record: saved); return saved
     }
@@ -211,11 +211,11 @@ public actor LocalAppService: AppService {
                                        sourceRegions: updatedRegions, stem: current.stem, studentWork: current.studentWork,
                                        referenceAnswer: current.referenceAnswer, referenceAnswerSource: current.referenceAnswerSource,
                                        analysisResult: current.analysisResult, notes: current.notes, tags: current.tags,
-                                       mistakeValue: .some(nil),
                                        reviewRequired: true, reviewReasons: Self.addReasons(current.reviewReasons, [.staleAnalysis, .staleClassification]),
-                                      processingStatus: RecordProcessingStatus(ocr: current.processingStatus.ocr,
+                                       processingStatus: RecordProcessingStatus(ocr: current.processingStatus.ocr,
                                         analysis: OperationOutcome(state: .stale, error: nil, inputContentRevision: current.contentRevision),
-                                        classification: OperationOutcome(state: .stale, error: nil, inputContentRevision: current.contentRevision)))
+                                        classification: OperationOutcome(state: .stale, error: nil, inputContentRevision: current.contentRevision)),
+                                       mistakeValue: .some(nil))
             do {
                 let saved = try await repository.commit(transaction: Self.recordTransaction(id: UUID(), write: RecordWrite(record: updated, expectedRecordRevision: current.recordRevision, expectedContentRevision: current.contentRevision, preserveConfirmedClassification: true))).records.first ?? updated
                 await emitRecord(kind: .upserted, record: saved); return RecordImageTransformResult(record: saved, transform: transformed)
