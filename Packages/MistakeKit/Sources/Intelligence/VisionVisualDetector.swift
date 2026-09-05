@@ -51,7 +51,7 @@ enum VisionVisualDetector {
 
         for observation in rectangles {
             guard observation.confidence >= 0.25,
-                  let rect = try? NormalizedRect.fromBottomLeft(x: Double(observation.x),
+                  let rect = try? Contracts.NormalizedRect.fromBottomLeft(x: Double(observation.x),
                                                                  y: Double(observation.y),
                                                                  width: Double(observation.width),
                                                                  height: Double(observation.height)),
@@ -154,19 +154,19 @@ enum VisionVisualDetector {
         return columns.count
     }
 
-    private static func center(of rect: NormalizedRect) -> (x: Double, y: Double) {
+    private static func center(of rect: Contracts.NormalizedRect) -> (x: Double, y: Double) {
         (rect.x + rect.width / 2, rect.y + rect.height / 2)
     }
 
-    private static func center(of lineRect: NormalizedRect, isInside region: NormalizedRect) -> Bool {
+    private static func center(of lineRect: Contracts.NormalizedRect, isInside region: Contracts.NormalizedRect) -> Bool {
         let point = center(of: lineRect)
         return point.x >= region.x && point.x <= region.x + region.width
             && point.y >= region.y && point.y <= region.y + region.height
     }
 
-    private static func area(_ rect: NormalizedRect) -> Double { rect.width * rect.height }
+    private static func area(_ rect: Contracts.NormalizedRect) -> Double { rect.width * rect.height }
 
-    private static func hasStrongDuplicate(of rect: NormalizedRect,
+    private static func hasStrongDuplicate(of rect: Contracts.NormalizedRect,
                                             in detected: [DetectedRegion],
                                             matching kind: VisualKind? = nil) -> Bool {
         detected.contains { item in
@@ -175,7 +175,7 @@ enum VisionVisualDetector {
         }
     }
 
-    private static func overlap(_ lhs: NormalizedRect, _ rhs: NormalizedRect) -> Double {
+    private static func overlap(_ lhs: Contracts.NormalizedRect, _ rhs: Contracts.NormalizedRect) -> Double {
         let left = max(lhs.x, rhs.x)
         let top = max(lhs.y, rhs.y)
         let right = min(lhs.x + lhs.width, rhs.x + rhs.width)
@@ -184,22 +184,22 @@ enum VisionVisualDetector {
         return (right - left) * (bottom - top) / min(area(lhs), area(rhs))
     }
 
-    private static func expandedRect(_ rect: NormalizedRect, padding: Double) throws -> NormalizedRect {
+    private static func expandedRect(_ rect: Contracts.NormalizedRect, padding: Double) throws -> Contracts.NormalizedRect {
         let x = max(0, rect.x - padding)
         let y = max(0, rect.y - padding)
         let right = min(1, rect.x + rect.width + padding)
         let bottom = min(1, rect.y + rect.height + padding)
-        return try NormalizedRect(x: x, y: y, width: max(0.001, right - x), height: max(0.001, bottom - y))
+        return try Contracts.NormalizedRect(x: x, y: y, width: max(0.001, right - x), height: max(0.001, bottom - y))
     }
 
-    private static func boundingRect(of lines: [OCRLine]) throws -> NormalizedRect {
+    private static func boundingRect(of lines: [OCRLine]) throws -> Contracts.NormalizedRect {
         let minX = lines.map { $0.normalizedRect.x }.min() ?? 0
         let minY = lines.map { $0.normalizedRect.y }.min() ?? 0
         let maxX = lines.map { $0.normalizedRect.x + $0.normalizedRect.width }.max() ?? 1
         let maxY = lines.map { $0.normalizedRect.y + $0.normalizedRect.height }.max() ?? 1
         let x = max(0, minX - 0.01)
         let y = max(0, minY - 0.01)
-        return try NormalizedRect(x: x, y: y,
+        return try Contracts.NormalizedRect(x: x, y: y,
                                   width: max(0.001, min(1, maxX + 0.01) - x),
                                   height: max(0.001, min(1, maxY + 0.01) - y))
     }

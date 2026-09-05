@@ -13,4 +13,4 @@ sh Scripts/bump-version.sh bugfix
 sh Scripts/bump-version.sh feature
 ```
 
-当前版本为 `0.2.2`，构建号为 `4`。本次修改为编译错误修复，因此按 bug 修复规则递增。
+当前版本为 `0.2.3`，构建号为 `5`。本次修改为编译错误修复，因此按 bug 修复规则递增。

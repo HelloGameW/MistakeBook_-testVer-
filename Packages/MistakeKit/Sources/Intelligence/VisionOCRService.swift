@@ -106,7 +106,7 @@ public struct VisionOCRService: OCRService, Sendable {
         var lines: [OCRLine] = []
         lines.reserveCapacity(pass.lines.count)
         for observation in pass.lines {
-            let rect = try NormalizedRect.fromBottomLeft(x: observation.x, y: observation.y,
+            let rect = try Contracts.NormalizedRect.fromBottomLeft(x: observation.x, y: observation.y,
                                                          width: observation.width, height: observation.height)
             lines.append(OCRLine(id: UUID(), regionID: pageRegionID, assetID: image.assetID,
                                  rawText: observation.text,
