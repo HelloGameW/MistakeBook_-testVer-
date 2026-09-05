@@ -1,0 +1,84 @@
+{
+  "id": "00000000-0000-0000-0000-000000000004",
+  "schemaVersion": 999,
+  "recordRevision": 1,
+  "contentRevision": 1,
+  "createdAt": "2026-09-05T00:00:00Z",
+  "updatedAt": "2026-09-05T00:00:00Z",
+  "sourceRegions": [
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "assetID": "00000000-0000-0000-0000-000000000001",
+      "normalizedRect": {
+        "x": 0.1,
+        "y": 0.1,
+        "width": 0.8,
+        "height": 0.3
+      },
+      "purpose": "stem",
+      "isUserConfirmed": true
+    }
+  ],
+  "ocrLines": [
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "regionID": "00000000-0000-0000-0000-000000000002",
+      "assetID": "00000000-0000-0000-0000-000000000001",
+      "rawText": "合成示例：2 + 2 = ?",
+      "confidence": {
+        "value": 0.75,
+        "source": "vision",
+        "calibrated": false
+      },
+      "scriptStyle": "unknown",
+      "normalizedRect": {
+        "x": 0.1,
+        "y": 0.1,
+        "width": 0.8,
+        "height": 0.3
+      }
+    }
+  ],
+  "stem": {
+    "rawText": "合成示例：2 + 2 = ?",
+    "correctedText": "合成示例：2 + 2 = ？",
+    "provenance": "user",
+    "isLocked": true
+  },
+  "studentWork": {
+    "rawText": "",
+    "provenance": "ocr",
+    "isLocked": false
+  },
+  "classification": {
+    "candidates": [],
+    "assignmentState": "unclassified",
+    "assignedBy": "none",
+    "taxonomyVersion": "synthetic-1",
+    "inputContentRevision": 1,
+    "suggestedTags": []
+  },
+  "notes": "固定合成契约素材，不是 OCR 实测结果。",
+  "tags": [
+    "synthetic"
+  ],
+  "reviewState": "new",
+  "reviewRequired": true,
+  "reviewReasons": [
+    "unclassified"
+  ],
+  "processingStatus": {
+    "ocr": {
+      "state": "success",
+      "inputContentRevision": 1
+    },
+    "analysis": {
+      "state": "pending",
+      "inputContentRevision": 1
+    },
+    "classification": {
+      "state": "pending",
+      "inputContentRevision": 1
+    }
+  }
+}

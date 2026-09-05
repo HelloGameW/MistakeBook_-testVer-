@@ -1,0 +1,28 @@
+{
+  "expectedRecordRevision": 1,
+  "stem": {
+    "kind": "unchanged"
+  },
+  "studentWork": {
+    "kind": "unchanged"
+  },
+  "referenceAnswer": {
+    "kind": "set",
+    "value": null
+  },
+  "referenceAnswerSource": {
+    "kind": "set",
+    "value": null
+  },
+  "sourceRegions": {
+    "kind": "unchanged"
+  },
+  "notes": {
+    "kind": "set",
+    "value": ""
+  },
+  "tags": {
+    "kind": "unchanged"
+  },
+  "hypothesisDecisions": []
+}

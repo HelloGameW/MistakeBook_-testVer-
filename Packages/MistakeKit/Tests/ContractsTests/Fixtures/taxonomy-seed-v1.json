@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "seedVersion": "synthetic-1",
+  "nodes": [
+    {
+      "id": "synthetic",
+      "name": "合成学科",
+      "subjectID": "synthetic",
+      "aliases": [],
+      "origin": "seed",
+      "isActive": true,
+      "version": 1,
+      "userModifiedFields": []
+    }
+  ]
+}

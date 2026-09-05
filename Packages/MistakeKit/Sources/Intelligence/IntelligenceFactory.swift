@@ -1,0 +1,55 @@
+import Foundation
+import Contracts
+
+public enum IntelligenceFactory {
+    public static func make(configuration: IntelligenceConfiguration,
+                            credentialStore: any CredentialStore = UnavailableCredentialStore()) throws -> IntelligenceServices {
+        guard configuration.recognition.maxPixelDimension > 0,
+              configuration.analysis.timeoutSeconds > 0 else { throw AppError(code: .unsupportedInput) }
+
+        let vision = VisionOCRService()
+        let modelOCR = ModelAPIOCRService(credentialStore: credentialStore)
+        let baiduOCR = BaiduEducationOCRService(credentialStore: credentialStore)
+        let ocr = RoutingOCRService(vision: vision, model: modelOCR, baidu: baiduOCR)
+
+        let foundation = FoundationModelsAnalysisService()
+        let modelAnalysis = ModelAPIAnalysisService(credentialStore: credentialStore)
+        let analysis = RoutingAnalysisService(foundation: foundation, model: modelAnalysis)
+
+        let value = RoutingMistakeValueService(model: ModelAPIMistakeValueService(credentialStore: credentialStore))
+        let capabilities = CompositeCapabilityProvider(ocr: ocr, analysis: analysis, credentialStore: credentialStore)
+        return IntelligenceServices(ocr: ocr, segmentation: HeuristicSegmentationService(), analysis: analysis,
+                                     value: value, classification: KeywordClassificationService(), capabilities: capabilities)
+    }
+
+    public static func makeTaxonomySeedProvider(resourceURL: URL) throws -> any TaxonomySeedProvider {
+        try JSONTaxonomySeedProvider(resourceURL: resourceURL)
+    }
+}
+
+private struct CompositeCapabilityProvider: CapabilityProvider, Sendable {
+    let ocr: RoutingOCRService
+    let analysis: RoutingAnalysisService
+    let credentialStore: any CredentialStore
+
+    func capabilities() async throws -> CapabilityReport {
+        try Task.checkCancellation()
+        let languages = (try? await ocr.supportedLanguages()) ?? []
+        let analysisReport = try await analysis.capabilities()
+        let credentials = (try? await credentialStore.status()) ?? CredentialStatus(configured: [])
+        let remoteOCRReady = credentials.contains(.ocrModelAPIKey) || (credentials.contains(.baiduAPIKey) && credentials.contains(.baiduSecretKey))
+        let valueReady = credentials.contains(.mistakeValueModelAPIKey)
+        let fixed = [
+            FeatureCapability(feature: .ocr, subjectID: "local-or-api", state: languages.isEmpty && !remoteOCRReady ? .unavailable : .available,
+                              reason: remoteOCRReady ? "Apple Vision 与已配置的 API OCR 可按设置路由。" : "Apple Vision 本地识别可用；API OCR 需另行配置凭据。",
+                              supportedLanguages: languages),
+            FeatureCapability(feature: .segmentation, subjectID: nil, state: .available,
+                              reason: "支持本地启发式分题；百度教育 OCR 可直接返回题目结构。", supportedLanguages: []),
+            FeatureCapability(feature: .classification, subjectID: nil, state: .available,
+                              reason: "按本地知识树名称和别名检索。", supportedLanguages: []),
+            FeatureCapability(feature: .mistakeValue, subjectID: "local-or-api", state: .available,
+                              reason: valueReady ? "本地价值量化与模型 API 均可用。" : "本地价值量化可用；模型 API 凭据尚未配置。", supportedLanguages: [])
+        ]
+        return CapabilityReport(checkedAt: Date(), features: fixed + analysisReport.features)
+    }
+}
