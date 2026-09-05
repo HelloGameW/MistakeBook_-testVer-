@@ -210,5 +210,5 @@ struct MistakeListView: View {
     }
 }
 
-private extension MistakeRecord: Identifiable {}
+extension MistakeRecord: Identifiable {}
 #endif
