@@ -307,7 +307,10 @@ public struct OfflinePDFExportService: PDFExportService {
                                 for hypothesis in visible {
                                     let prefix = hypothesis.userDecision == .pending ? "候选：" : "已接受候选（非正确性保证）："
                                     drawWrapped(prefix + hypothesis.summary)
-                                    drawWrapped(hypothesis.reason, font: smallFont, color: .secondaryLabel)
+                                    drawWrapped(hypothesis.reason,
+                                                font: smallFont,
+                                                color: .secondaryLabel,
+                                                spacing: 2)
                                 }
                             }
                         }
