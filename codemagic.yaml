@@ -1,6 +1,6 @@
 workflows:
-  mistakbook-ios-check:
-    name: MistakeBook iOS Build Check
+  mistakebook-ios-device:
+    name: MistakeBook iPhone Unsigned Build
 
     instance_type: mac_mini_m2
     max_build_duration: 60
@@ -25,19 +25,52 @@ workflows:
             -resolvePackageDependencies \
             -project "$CM_BUILD_DIR/MistakeBook.xcodeproj"
 
-      - name: Build MistakeBook for iOS Simulator
+      - name: Build MistakeBook for iPhone
         script: |
           xcodebuild build \
             -project "$CM_BUILD_DIR/MistakeBook.xcodeproj" \
             -scheme "MistakeBook" \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -configuration Debug \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO
 
+      - name: Package unsigned IPA
+        script: |
+          APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" \
+            -path "*/Build/Products/Debug-iphoneos/MistakeBook.app" \
+            -print \
+            -quit)
+
+          if [ -z "$APP_PATH" ]; then
+            echo "MistakeBook.app not found."
+            exit 1
+          fi
+
+          echo "Found app:"
+          echo "$APP_PATH"
+
+          rm -rf "$CM_BUILD_DIR/UnsignedIPA"
+          mkdir -p "$CM_BUILD_DIR/UnsignedIPA/Payload"
+
+          cp -R \
+            "$APP_PATH" \
+            "$CM_BUILD_DIR/UnsignedIPA/Payload/MistakeBook.app"
+
+          cd "$CM_BUILD_DIR/UnsignedIPA"
+
+          /usr/bin/zip \
+            -qry \
+            "$CM_BUILD_DIR/MistakeBook-unsigned.ipa" \
+            Payload
+
+          echo "Created:"
+          ls -lh "$CM_BUILD_DIR/MistakeBook-unsigned.ipa"
+
     artifacts:
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+      - $CM_BUILD_DIR/MistakeBook-unsigned.ipa
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug-iphoneos/*.app
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug-iphoneos/*.dSYM
       - /tmp/xcodebuild_logs/*.log
