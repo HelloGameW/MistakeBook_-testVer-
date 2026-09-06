@@ -13,4 +13,4 @@ sh Scripts/bump-version.sh bugfix
 sh Scripts/bump-version.sh feature
 ```
 
-当前版本为 `0.2.8`，构建号为 `10`。`0.2.6`/`0.2.7` 依次修复 Intelligence 与 UI 目标的四处编译错误；`0.2.8` 修复 Export 目标的一处编译错误（`drawWrapped` 调用缺少 `spacing:` 参数，该调用位于 `#if os(iOS)` 的 PDF 渲染函数内，Windows 本地编译检查无法覆盖）。
+当前版本为 `0.2.9`，构建号为 `11`。`0.2.6`–`0.2.8` 依次修复了 Intelligence、UI、Export 目标的五处编译错误；`0.2.9` 修复模拟器测试构建失败（Xcode 26 会把模拟器 App 目标的 ARCHS_STANDARD 扩展出 x86_64 切片，而 SwiftPM 包模块只构建 arm64 模拟器切片，导致 x86_64 切片无法解析包模块；已在 xcconfig 中对模拟器 SDK 排除 x86_64）。
