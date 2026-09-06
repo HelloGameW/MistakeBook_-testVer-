@@ -11,12 +11,15 @@ private struct CurriculumParameters: Decodable {
         let centrality: Double
         let competency: Double
     }
-    struct TargetFit: Decodable {
-        let normal: Double
-        let stretch: Double
-        let beyond: Double
-        let fBase: Double
-    }
+        struct TargetFit: Decodable {
+            let normal: Double
+            let stretch: Double
+            let beyond: Double
+            let fBase: Double
+
+            // JSON 键为 F_base（大写 F + 下划线），合成解码会找不到键。
+            enum CodingKeys: String, CodingKey { case normal, stretch, beyond, fBase = "F_base" }
+        }
     struct Repeat: Decodable { let alpha: Double; let cap: Double }
     struct Propagation: Decodable { let lambda: Double; let cap: Double }
     struct Priority: Decodable { let gamma: Double }
