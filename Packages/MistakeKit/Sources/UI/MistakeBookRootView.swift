@@ -19,10 +19,12 @@ public struct MistakeBookRootView: View {
 
     public var body: some View {
         TabView(selection: $selectedTab) {
-            MistakeListView(service: service, lastBatchID: lastBatchID,
+            // refreshToken nudges the list to re-query after imports; rebuilding
+            // the whole subtree with .id() discarded view state and re-created
+            // the view model, which made every import feel like a restart.
+            MistakeListView(service: service, lastBatchID: lastBatchID, refreshToken: dataRefreshID,
                             onImport: { showingImport = true },
                             onSettings: { showingSettings = true })
-                .id(dataRefreshID)
                 .tabItem { Label("错题", systemImage: "book.closed") }
                 .tag(RootTab.mistakes)
 

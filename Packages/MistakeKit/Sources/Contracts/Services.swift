@@ -119,6 +119,26 @@ public protocol MistakeRepository: Sendable {
     func referencedAssetIDs() async throws -> [UUID]
     func inventory() async throws -> DataInventory
     func clearAll() async throws
+    /// Counts active (non-deleted) records classified under one taxonomy node.
+    /// Stores backed by a queryable index should override the default
+    /// page-through implementation.
+    func countRecords(primaryNodeID: String) async throws -> Int
+}
+
+public extension MistakeRepository {
+    func countRecords(primaryNodeID: String) async throws -> Int {
+        var cursor: String? = nil
+        var count = 0
+        repeat {
+            let query = RecordQuery(text: "", subjectID: nil, taxonomyNodeID: primaryNodeID,
+                                    includeDescendants: false, reviewStates: [], reviewRequiredOnly: false,
+                                    includeDeleted: false, sort: .updatedNewest)
+            let page = try await list(query: query, page: PageRequest(cursor: cursor, limit: 200))
+            count += page.records.count
+            cursor = page.nextCursor
+        } while cursor != nil
+        return count
+    }
 }
 
 public protocol PDFExportService: Sendable {

@@ -35,39 +35,67 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
         let fingerprint = try Self.fingerprint(query)
         let offset = try Self.decodeCursor(page.cursor, fingerprint: fingerprint)
         let taxonomy = try currentTaxonomy()
-        var values = try context.fetch(FetchDescriptor<StoredRecordEntity>()).compactMap { entity -> (MistakeRecord, StoredRecordEntity)? in
-            guard query.includeDeleted || !entity.isSoftDeleted else { return nil }
-            let record = try decodeRecord(entity.payload)
-            guard query.includeDeleted || !entity.isSoftDeleted else { return nil }
-            return (record, entity)
+        let trimmedText = query.text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Column-level filters run inside the store and rows arrive in final
+        // sort order; payloads are decoded lazily, only for the rows this page
+        // actually returns. Decoding every stored record per keystroke was the
+        // dominant list jank. The subject branch avoids comparing two
+        // optionals, which #Predicate cannot always translate.
+        let allowDeleted = query.includeDeleted
+        let allowArchived = query.includeArchived
+        var descriptor: FetchDescriptor<StoredRecordEntity>
+        if let subjectID = query.subjectID {
+            descriptor = FetchDescriptor<StoredRecordEntity>(
+                predicate: #Predicate { entity in
+                    (allowDeleted || entity.isSoftDeleted == false)
+                        && (allowArchived || entity.isArchived == false)
+                        && entity.subjectID == subjectID
+                },
+                sortBy: Self.sortDescriptors(for: query.sort))
+        } else {
+            descriptor = FetchDescriptor<StoredRecordEntity>(
+                predicate: #Predicate { entity in
+                    (allowDeleted || entity.isSoftDeleted == false)
+                        && (allowArchived || entity.isArchived == false)
+                },
+                sortBy: Self.sortDescriptors(for: query.sort))
         }
-        values = values.filter { record, entity in
-            if !query.includeDeleted && entity.isSoftDeleted { return false }
-            if !query.includeArchived && record.isArchived { return false }
-            if let subjectID = query.subjectID, record.classification.subjectID != subjectID { return false }
-            if let nodeID = query.taxonomyNodeID {
-                let allowed = query.includeDescendants ? Self.descendantIDs(nodeID: nodeID, taxonomy: taxonomy) : [nodeID]
-                guard allowed.contains(record.classification.primaryNodeID ?? "") else { return false }
+        descriptor.includePendingChanges = true
+        let candidates = try context.fetch(descriptor)
+
+        let allowedNodeIDs: Set<String>? = query.taxonomyNodeID.map { nodeID in
+            query.includeDescendants ? Set(Self.descendantIDs(nodeID: nodeID, taxonomy: taxonomy)) : [nodeID]
+        }
+        let nodePaths = trimmedText.isEmpty ? [:] : Self.nodePathNames(taxonomy)
+        let needsPayloadFilter = !query.reviewStates.isEmpty || query.reviewRequiredOnly
+        let windowEnd = offset + page.limit
+
+        var matched = 0
+        var records: [MistakeRecord] = []
+        records.reserveCapacity(page.limit)
+        for entity in candidates {
+            if let allowed = allowedNodeIDs, !allowed.contains(entity.primaryNodeID ?? "") { continue }
+            if !trimmedText.isEmpty {
+                let path = nodePaths[entity.primaryNodeID ?? ""] ?? ""
+                guard (entity.searchText + " " + path).localizedCaseInsensitiveContains(trimmedText) else { continue }
             }
-            if !query.reviewStates.isEmpty && !query.reviewStates.contains(record.reviewState) { return false }
-            if query.reviewRequiredOnly && !record.reviewRequired { return false }
-            if !query.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                let byID = Dictionary(uniqueKeysWithValues: taxonomy.nodes.map { ($0.id, $0) })
-                var path: [String] = []; var nodeID = record.classification.primaryNodeID; var seen: Set<String> = []
-                while let id = nodeID, let node = byID[id], seen.insert(id).inserted { path.append(node.name); nodeID = node.parentID }
-                guard (entity.searchText + " " + path.joined(separator: " ")).localizedCaseInsensitiveContains(query.text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+            let inWindow = matched >= offset && matched < windowEnd
+            if inWindow || needsPayloadFilter {
+                guard let record = try? decodeRecord(entity.payload) else { continue }
+                // Rows written before the isArchived column existed keep the
+                // default false, so the page's rows re-check the payload.
+                if !allowArchived && record.isArchived { continue }
+                if !query.reviewStates.isEmpty && !query.reviewStates.contains(record.reviewState) { continue }
+                if query.reviewRequiredOnly && !record.reviewRequired { continue }
+                if inWindow { records.append(record) }
             }
-            return true
+            matched += 1
+            if matched == windowEnd + 1 { break }
         }
-        values.sort { lhs, rhs in
-            let leftDate = query.sort == .updatedNewest ? lhs.0.updatedAt : lhs.0.createdAt
-            let rightDate = query.sort == .updatedNewest ? rhs.0.updatedAt : rhs.0.createdAt
-            if leftDate != rightDate { return query.sort == .updatedNewest ? leftDate > rightDate : leftDate < rightDate }
-            return lhs.0.id.uuidString < rhs.0.id.uuidString
-        }
-        let slice = Array(values.dropFirst(offset).prefix(page.limit)).map(\.0)
-        let nextOffset = offset + slice.count < values.count ? offset + slice.count : nil
-        return RecordPage(records: slice, nextCursor: nextOffset.map { Self.encodeCursor(offset: $0, fingerprint: fingerprint) })
+        let hasMore = matched > windowEnd
+        let nextOffset = hasMore ? offset + records.count : nil
+        return RecordPage(records: records, nextCursor: nextOffset.map { Self.encodeCursor(offset: $0, fingerprint: fingerprint) })
     }
 
     public func update(record: MistakeRecord, expectedRecordRevision: Int) async throws -> MistakeRecord {
@@ -140,10 +168,27 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
 
     public func listJobs(batchID: UUID?, states: [JobState]) async throws -> [ProcessingJob] {
         try Task.checkCancellation()
-        return try context.fetch(FetchDescriptor<StoredJobEntity>()).compactMap { entity in
+        // batchIDString is a mirrored column; rows written before it existed
+        // keep nil and are re-checked against the decoded payload. Each clause
+        // compares the attribute against a non-optional value or nil, which
+        // #Predicate translates reliably.
+        let batchString = batchID?.uuidString
+        let stateStrings = states.map(\.rawValue)
+        var descriptor: FetchDescriptor<StoredJobEntity>
+        if let batchString {
+            descriptor = FetchDescriptor<StoredJobEntity>(predicate: #Predicate { entity in
+                (stateStrings.isEmpty || stateStrings.contains(entity.stateRaw))
+                    && (entity.batchIDString == batchString || entity.batchIDString == nil)
+            })
+        } else {
+            descriptor = FetchDescriptor<StoredJobEntity>(predicate: #Predicate { entity in
+                stateStrings.isEmpty || stateStrings.contains(entity.stateRaw)
+            })
+        }
+        descriptor.includePendingChanges = true
+        return try context.fetch(descriptor).compactMap { entity -> ProcessingJob? in
             let job = try decode(ProcessingJob.self, entity.payload)
-            guard (batchID == nil || job.batchID == batchID),
-                  (states.isEmpty || states.contains(job.state)) else { return nil }
+            if entity.batchIDString == nil, let batchID, job.batchID != batchID { return nil }
             return job
         }.sorted { $0.createdAt < $1.createdAt }
     }
@@ -241,7 +286,7 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
     }
 
     public func loadRegionUndo(token: RegionUndoToken) async throws -> RegionUndoState {
-        guard let entity = try context.fetch(FetchDescriptor<StoredRegionUndoEntity>()).first(where: { $0.idString == token.id.uuidString }),
+        guard let entity = try findRegionUndoEntity(token.id),
               let state = try? decode(RegionUndoState.self, entity.payload),
               state.token.id == token.id,
               state.token.expiresAt.map({ $0 > Date() }) ?? true else { throw AppError(code: .expiredToken) }
@@ -249,7 +294,7 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
     }
 
     public func removeRegionUndo(token: RegionUndoToken) async throws {
-        if let entity = try context.fetch(FetchDescriptor<StoredRegionUndoEntity>()).first(where: { $0.idString == token.id.uuidString }) { context.delete(entity); try saveContext() }
+        if let entity = try findRegionUndoEntity(token.id) { context.delete(entity); try saveContext() }
     }
 
     public func loadTombstones() async throws -> [RecordTombstone] {
@@ -288,9 +333,27 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
     private func applyTransaction(_ transaction: RepositoryTransaction, persist: Bool = true) throws -> RepositoryCommit {
         do {
             let result = try stageTransaction(transaction)
-            if persist { try saveContext() }
+            if persist {
+                try saveContext()
+                // The idempotency log grows by one row per commit; keep it
+                // bounded so commits stay cheap over the app's lifetime.
+                transactionCommits += 1
+                if transactionCommits % 32 == 0 { try? pruneTransactionLog() }
+            }
             return result
         } catch { context.rollback(); throw error }
+    }
+
+    private var transactionCommits = 0
+
+    private func pruneTransactionLog() throws {
+        var descriptor = FetchDescriptor<StoredTransactionEntity>(sortBy: [SortDescriptor(\.createdAt, order: .reverse)])
+        descriptor.fetchOffset = 128
+        descriptor.includePendingChanges = true
+        let expired = try context.fetch(descriptor)
+        guard !expired.isEmpty else { return }
+        for entity in expired { context.delete(entity) }
+        try context.save()
     }
 
     private func stageTransaction(_ transaction: RepositoryTransaction) throws -> RepositoryCommit {
@@ -300,13 +363,11 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
               Set(transaction.tombstones.map(\.recordID)).count == transaction.tombstones.count,
               Set(transaction.jobs.map(\.id)).count == transaction.jobs.count,
               Set(transaction.batches.map(\.id)).count == transaction.batches.count else { throw AppError(code: .unsupportedInput) }
-        if let seen = try context.fetch(FetchDescriptor<StoredTransactionEntity>()).first(where: { $0.idString == transaction.id.uuidString }) {
+        if let seen = try findTransactionEntity(transaction.id) {
             return try decode(RepositoryCommit.self, seen.payload)
         }
-        var entities: [UUID: StoredRecordEntity] = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<StoredRecordEntity>()).compactMap { (entity: StoredRecordEntity) -> (UUID, StoredRecordEntity)? in
-            guard let id = UUID(uuidString: entity.idString) else { return nil }
-            return (id, entity)
-        })
+        let recordIDs = Set(transaction.recordWrites.map(\.record.id) + transaction.deleteRecordIDs + transaction.restoreRecordIDs)
+        var entities: [UUID: StoredRecordEntity] = try recordEntities(ids: recordIDs)
         var records: [MistakeRecord] = []
         var mergedWrites: [(MistakeRecord, StoredRecordEntity?, Bool)] = []
         for write in transaction.recordWrites {
@@ -336,15 +397,13 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
                   let version = deleteVersions[id], version.recordRevision == record.recordRevision,
                   version.contentRevision == record.contentRevision else { throw AppError(code: .revisionConflict) }
         }
+        let tombstoneMap = try tombstoneEntities(ids: transaction.restoreRecordIDs)
         for id in transaction.restoreRecordIDs {
             guard let entity = entities[id], entity.isSoftDeleted,
-                  let tombstone = try context.fetch(FetchDescriptor<StoredTombstoneEntity>()).first(where: { $0.idString == id.uuidString }),
+                  let tombstone = tombstoneMap[id],
                   let value = try? decode(RecordTombstone.self, tombstone.payload), value.lastRecordRevision == transaction.recordWrites.first(where: { $0.record.id == id })?.expectedRecordRevision else { throw AppError(code: .revisionConflict) }
         }
-        let jobEntities: [UUID: StoredJobEntity] = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<StoredJobEntity>()).compactMap { (entity: StoredJobEntity) -> (UUID, StoredJobEntity)? in
-            guard let id = UUID(uuidString: entity.idString) else { return nil }
-            return (id, entity)
-        })
+        let jobEntities: [UUID: StoredJobEntity] = try jobEntities(ids: Set(transaction.jobs.map(\.id)))
         let guards = Dictionary(uniqueKeysWithValues: transaction.expectedJobStates.map { ($0.jobID, $0) })
         for job in transaction.jobs {
             if let existing = jobEntities[job.id] {
@@ -358,10 +417,7 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
                 guard current.assetID == job.assetID, current.batchID == job.batchID else { throw AppError(code: .revisionConflict) }
             } else if guards[job.id] != nil { throw AppError(code: .revisionConflict) }
         }
-        let batchEntities: [UUID: StoredBatchEntity] = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<StoredBatchEntity>()).compactMap { (entity: StoredBatchEntity) -> (UUID, StoredBatchEntity)? in
-            guard let id = UUID(uuidString: entity.idString) else { return nil }
-            return (id, entity)
-        })
+        let batchEntities: [UUID: StoredBatchEntity] = try batchEntities(ids: Set(transaction.batches.map(\.id)))
         for batch in transaction.batches {
             if let existing = batchEntities[batch.id], let current = try? decode(ImportBatch.self, existing.payload), current.cancelledAt != nil && batch.cancelledAt == nil { throw AppError(code: .revisionConflict) }
         }
@@ -373,7 +429,7 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
                 let entity = StoredRecordEntity(idString: value.id.uuidString, payload: payload, isSoftDeleted: false,
                     recordRevision: value.recordRevision, contentRevision: value.contentRevision, createdAt: value.createdAt,
                     updatedAt: value.updatedAt, searchText: Self.searchText(value), subjectID: value.classification.subjectID,
-                    primaryNodeID: value.classification.primaryNodeID)
+                    primaryNodeID: value.classification.primaryNodeID, isArchived: value.isArchived)
                 context.insert(entity); entities[value.id] = entity
             }
         }
@@ -383,12 +439,15 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
         }
         for id in transaction.restoreRecordIDs {
             if let entity = entities[id] { entity.isSoftDeleted = false }
-            if let tombstone = try context.fetch(FetchDescriptor<StoredTombstoneEntity>()).first(where: { $0.idString == id.uuidString }) { context.delete(tombstone) }
+            if let tombstone = tombstoneMap[id] { context.delete(tombstone) }
         }
         for job in transaction.jobs {
             let data = try encode(job)
-            if let entity = jobEntities[job.id] { entity.payload = data; entity.stateRaw = job.state.rawValue; entity.attempt = job.attempt; entity.updatedAt = job.updatedAt }
-            else { context.insert(StoredJobEntity(idString: job.id.uuidString, payload: data, stateRaw: job.state.rawValue, attempt: job.attempt, updatedAt: job.updatedAt)) }
+            if let entity = jobEntities[job.id] {
+                entity.payload = data; entity.stateRaw = job.state.rawValue; entity.attempt = job.attempt
+                entity.updatedAt = job.updatedAt; entity.batchIDString = job.batchID.uuidString
+            }
+            else { context.insert(StoredJobEntity(idString: job.id.uuidString, payload: data, stateRaw: job.state.rawValue, attempt: job.attempt, updatedAt: job.updatedAt, batchIDString: job.batchID.uuidString)) }
         }
         for batch in transaction.batches {
             let data = try encode(batch)
@@ -397,7 +456,7 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
         }
         if let undo = transaction.regionUndoState { context.insert(StoredRegionUndoEntity(idString: undo.token.id.uuidString, payload: try encode(undo))) }
         let commit = RepositoryCommit(transactionID: transaction.id, records: records)
-        context.insert(StoredTransactionEntity(idString: transaction.id.uuidString, payload: try encode(commit)))
+        context.insert(StoredTransactionEntity(idString: transaction.id.uuidString, payload: try encode(commit), createdAt: Date()))
         return commit
     }
 
@@ -405,11 +464,95 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
         guard let entity = try findRecordEntity(id), includeDeleted || !entity.isSoftDeleted else { return nil }
         return try decodeRecord(entity.payload)
     }
-    private func findRecordEntity(_ id: UUID) throws -> StoredRecordEntity? { try context.fetch(FetchDescriptor<StoredRecordEntity>()).first { $0.idString == id.uuidString } }
-    private func findJobEntity(_ id: UUID) throws -> StoredJobEntity? { try context.fetch(FetchDescriptor<StoredJobEntity>()).first { $0.idString == id.uuidString } }
-    private func findBatchEntity(_ id: UUID) throws -> StoredBatchEntity? { try context.fetch(FetchDescriptor<StoredBatchEntity>()).first { $0.idString == id.uuidString } }
-    private func findDeletion(_ id: UUID) throws -> StoredDeletionEntity? { try context.fetch(FetchDescriptor<StoredDeletionEntity>()).first { $0.idString == id.uuidString } }
-    private func findTaxonomyEntity() throws -> StoredTaxonomyEntity? { try context.fetch(FetchDescriptor<StoredTaxonomyEntity>()).first }
+    private func findRecordEntity(_ id: UUID) throws -> StoredRecordEntity? {
+        let idString = id.uuidString
+        var descriptor = FetchDescriptor<StoredRecordEntity>(predicate: #Predicate { entity in entity.idString == idString })
+        descriptor.fetchLimit = 1
+        descriptor.includePendingChanges = true
+        return try context.fetch(descriptor).first
+    }
+    private func findJobEntity(_ id: UUID) throws -> StoredJobEntity? {
+        let idString = id.uuidString
+        var descriptor = FetchDescriptor<StoredJobEntity>(predicate: #Predicate { entity in entity.idString == idString })
+        descriptor.fetchLimit = 1
+        descriptor.includePendingChanges = true
+        return try context.fetch(descriptor).first
+    }
+    private func findBatchEntity(_ id: UUID) throws -> StoredBatchEntity? {
+        let idString = id.uuidString
+        var descriptor = FetchDescriptor<StoredBatchEntity>(predicate: #Predicate { entity in entity.idString == idString })
+        descriptor.fetchLimit = 1
+        descriptor.includePendingChanges = true
+        return try context.fetch(descriptor).first
+    }
+    private func findDeletion(_ id: UUID) throws -> StoredDeletionEntity? {
+        let idString = id.uuidString
+        var descriptor = FetchDescriptor<StoredDeletionEntity>(predicate: #Predicate { entity in entity.idString == idString })
+        descriptor.fetchLimit = 1
+        descriptor.includePendingChanges = true
+        return try context.fetch(descriptor).first
+    }
+    private func findTaxonomyEntity() throws -> StoredTaxonomyEntity? {
+        var descriptor = FetchDescriptor<StoredTaxonomyEntity>()
+        descriptor.fetchLimit = 1
+        return try context.fetch(descriptor).first
+    }
+    private func findRegionUndoEntity(_ id: UUID) throws -> StoredRegionUndoEntity? {
+        let idString = id.uuidString
+        var descriptor = FetchDescriptor<StoredRegionUndoEntity>(predicate: #Predicate { entity in entity.idString == idString })
+        descriptor.fetchLimit = 1
+        descriptor.includePendingChanges = true
+        return try context.fetch(descriptor).first
+    }
+    private func findTransactionEntity(_ id: UUID) throws -> StoredTransactionEntity? {
+        let idString = id.uuidString
+        var descriptor = FetchDescriptor<StoredTransactionEntity>(predicate: #Predicate { entity in entity.idString == idString })
+        descriptor.fetchLimit = 1
+        descriptor.includePendingChanges = true
+        return try context.fetch(descriptor).first
+    }
+    /// Batched fetch of record entities by id, so transactions touch only the
+    /// rows they stage instead of materializing the whole table per commit.
+    private func recordEntities(ids: Set<UUID>) throws -> [UUID: StoredRecordEntity] {
+        guard !ids.isEmpty else { return [:] }
+        let idStrings = ids.map(\.uuidString)
+        var result: [UUID: StoredRecordEntity] = [:]
+        for entity in try context.fetch(FetchDescriptor<StoredRecordEntity>(
+            predicate: #Predicate { entity in idStrings.contains(entity.idString) })) {
+            if let id = UUID(uuidString: entity.idString) { result[id] = entity }
+        }
+        return result
+    }
+    private func jobEntities(ids: Set<UUID>) throws -> [UUID: StoredJobEntity] {
+        guard !ids.isEmpty else { return [:] }
+        let idStrings = ids.map(\.uuidString)
+        var result: [UUID: StoredJobEntity] = [:]
+        for entity in try context.fetch(FetchDescriptor<StoredJobEntity>(
+            predicate: #Predicate { entity in idStrings.contains(entity.idString) })) {
+            if let id = UUID(uuidString: entity.idString) { result[id] = entity }
+        }
+        return result
+    }
+    private func batchEntities(ids: Set<UUID>) throws -> [UUID: StoredBatchEntity] {
+        guard !ids.isEmpty else { return [:] }
+        let idStrings = ids.map(\.uuidString)
+        var result: [UUID: StoredBatchEntity] = [:]
+        for entity in try context.fetch(FetchDescriptor<StoredBatchEntity>(
+            predicate: #Predicate { entity in idStrings.contains(entity.idString) })) {
+            if let id = UUID(uuidString: entity.idString) { result[id] = entity }
+        }
+        return result
+    }
+    private func tombstoneEntities(ids: [UUID]) throws -> [UUID: StoredTombstoneEntity] {
+        guard !ids.isEmpty else { return [:] }
+        let idStrings = ids.map(\.uuidString)
+        var result: [UUID: StoredTombstoneEntity] = [:]
+        for entity in try context.fetch(FetchDescriptor<StoredTombstoneEntity>(
+            predicate: #Predicate { entity in idStrings.contains(entity.idString) })) {
+            if let id = UUID(uuidString: entity.idString) { result[id] = entity }
+        }
+        return result
+    }
     private func currentTaxonomy() throws -> TaxonomySnapshot {
         guard let entity = try findTaxonomyEntity() else { return TaxonomySnapshot(version: "0", nodes: []) }
         return try decode(TaxonomySnapshot.self, entity.payload)
@@ -423,7 +566,8 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
         ([record.stem.displayText, record.studentWork.displayText, record.referenceAnswer?.displayText ?? "", record.notes, record.tags.joined(separator: " "), record.classification.primaryNodeID ?? "", record.classification.suggestedTags.joined(separator: " ")]).joined(separator: " ")
     }
     private static func update(entity: StoredRecordEntity, record: MistakeRecord, payload: Data, deleted: Bool) {
-        entity.payload = payload; entity.isSoftDeleted = deleted; entity.recordRevision = record.recordRevision; entity.contentRevision = record.contentRevision; entity.createdAt = record.createdAt; entity.updatedAt = record.updatedAt; entity.searchText = searchText(record); entity.subjectID = record.classification.subjectID; entity.primaryNodeID = record.classification.primaryNodeID
+        entity.payload = payload; entity.isSoftDeleted = deleted; entity.isArchived = record.isArchived
+        entity.recordRevision = record.recordRevision; entity.contentRevision = record.contentRevision; entity.createdAt = record.createdAt; entity.updatedAt = record.updatedAt; entity.searchText = searchText(record); entity.subjectID = record.classification.subjectID; entity.primaryNodeID = record.classification.primaryNodeID
     }
     private static func withRevisions(_ record: MistakeRecord, recordRevision: Int, updatedAt: Date) -> MistakeRecord {
         MistakeRecord(id: record.id, schemaVersion: record.schemaVersion, recordRevision: recordRevision, contentRevision: record.contentRevision, createdAt: record.createdAt, updatedAt: updatedAt, sourceRegions: record.sourceRegions, ocrLines: record.ocrLines, stem: record.stem, studentWork: record.studentWork, referenceAnswer: record.referenceAnswer, referenceAnswerSource: record.referenceAnswerSource, analysisResult: record.analysisResult, classification: record.classification, notes: record.notes, tags: record.tags, reviewState: record.reviewState, reviewRequired: record.reviewRequired, reviewReasons: record.reviewReasons, processingStatus: record.processingStatus, isArchived: record.isArchived, mistakeValue: record.mistakeValue)
@@ -457,6 +601,41 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
         }
         return result
     }
+    /// Index-backed count used by the curriculum quantification; replaces
+    /// paging through and decoding every record per evaluation.
+    public func countRecords(primaryNodeID nodeID: String) async throws -> Int {
+        try Task.checkCancellation()
+        var descriptor = FetchDescriptor<StoredRecordEntity>(predicate: #Predicate { entity in
+            entity.isSoftDeleted == false && entity.primaryNodeID == nodeID
+        })
+        descriptor.includePendingChanges = true
+        return try context.fetchCount(descriptor)
+    }
+
+    private static func sortDescriptors(for sort: RecordSort) -> [SortDescriptor<StoredRecordEntity>] {
+        switch sort {
+        case .updatedNewest: return [SortDescriptor(\.updatedAt, order: .reverse), SortDescriptor(\.idString, order: .forward)]
+        case .createdOldest: return [SortDescriptor(\.createdAt, order: .forward), SortDescriptor(\.idString, order: .forward)]
+        }
+    }
+
+    /// "a b c" search-text path for every taxonomy node, computed once per query.
+    private static func nodePathNames(_ taxonomy: TaxonomySnapshot) -> [String: String] {
+        let byID = Dictionary(uniqueKeysWithValues: taxonomy.nodes.map { ($0.id, $0) })
+        var paths: [String: String] = [:]
+        for node in taxonomy.nodes {
+            var names: [String] = []
+            var current: TaxonomyNode? = node
+            var seen: Set<String> = []
+            while let step = current, seen.insert(step.id).inserted {
+                names.insert(step.name, at: 0)
+                current = step.parentID.flatMap { byID[$0] }
+            }
+            paths[node.id] = names.joined(separator: " ")
+        }
+        return paths
+    }
+
     private static func fingerprint(_ query: RecordQuery) throws -> String { String(data: try ContractJSON.encoder().encode(query), encoding: .utf8) ?? "" }
     private static func encodeCursor(offset: Int, fingerprint: String) -> String { Data("\(offset)|\(fingerprint)".utf8).base64EncodedString() }
     private static func decodeCursor(_ cursor: String?, fingerprint: String) throws -> Int {

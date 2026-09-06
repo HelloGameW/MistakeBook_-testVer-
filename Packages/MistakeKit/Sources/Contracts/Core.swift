@@ -95,18 +95,27 @@ public enum FieldChange<Value: Codable & Sendable & Equatable>: Codable, Sendabl
 }
 
 public enum ContractJSON {
-    /// New encoder/decoder per operation; never shared mutable cross-actor state.
-    public static func encoder() -> JSONEncoder {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        return encoder
-    }
+    /// Shared configured coders. JSONEncoder/JSONDecoder keep no mutable state
+    /// between calls, so one instance per process is safe across actors; the
+    /// wrapper exists only to satisfy Sendable checking.
+    private static let shared = CoderBox()
 
-    public static func decoder() -> JSONDecoder {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return decoder
+    /// Compact output: stored payloads and wire bodies are parsed by machines,
+    /// and pretty-printed JSON inflated every persisted record.
+    /// `sortedKeys` stays: query fingerprints depend on deterministic encoding.
+    public static func encoder() -> JSONEncoder { shared.encoder }
+    public static func decoder() -> JSONDecoder { shared.decoder }
+
+    private final class CoderBox: @unchecked Sendable {
+        let encoder: JSONEncoder
+        let decoder: JSONDecoder
+        init() {
+            encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+            decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+        }
     }
 }
 

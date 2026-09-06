@@ -329,16 +329,21 @@ struct ImportFlowView: View {
     }
 
     private func loadFiles(_ urls: [URL]) {
-        Task { @MainActor in
-            var pages: [ImportedPage] = []
-            for (index, url) in urls.prefix(20).enumerated() {
-                let accessed = url.startAccessingSecurityScopedResource()
-                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                if let data = try? Data(contentsOf: url) {
-                    pages.append(ImportedPage(id: UUID(), bytes: data, mediaType: MediaType.detect(data: data, name: url.lastPathComponent),
-                                              sourceName: url.lastPathComponent, order: index))
+        // File reads (possibly large HEIC/JPEGs) never touch the main thread.
+        Task {
+            let pages: [ImportedPage] = await Task.detached(priority: .userInitiated) {
+                var pages: [ImportedPage] = []
+                for (index, url) in urls.prefix(20).enumerated() {
+                    let accessed = url.startAccessingSecurityScopedResource()
+                    defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                    if let data = try? Data(contentsOf: url) {
+                        pages.append(ImportedPage(id: UUID(), bytes: data,
+                                                  mediaType: MediaType.detect(data: data, name: url.lastPathComponent),
+                                                  sourceName: url.lastPathComponent, order: index))
+                    }
                 }
-            }
+                return pages
+            }.value
             submit(pages: pages)
         }
     }

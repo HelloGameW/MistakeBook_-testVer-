@@ -60,7 +60,8 @@ struct ProcessingQueueSheet: View {
             }
         }
         .presentationDetents([.medium, .large])
-        .task(id: reloadToken) { observe() }
+        // Structured: the subscription is cancelled when the sheet disappears.
+        .task(id: reloadToken) { await observe() }
     }
 
     private func jobRow(pageNumber: Int, job: ProcessingJob) -> some View {
@@ -84,18 +85,16 @@ struct ProcessingQueueSheet: View {
         .accessibilityElement(children: .combine)
     }
 
-    private func observe() {
+    private func observe() async {
         errorMessage = nil
-        Task {
-            do {
-                let stream = try await service.observeBatch(batchID: batchID)
-                for await next in stream {
-                    event = next
-                    if next.isTerminal { break }
-                }
-            } catch {
-                errorMessage = UIErrorMessage.from(error)
+        do {
+            let stream = try await service.observeBatch(batchID: batchID)
+            for await next in stream {
+                event = next
+                if next.isTerminal { break }
             }
+        } catch {
+            errorMessage = UIErrorMessage.from(error)
         }
     }
 

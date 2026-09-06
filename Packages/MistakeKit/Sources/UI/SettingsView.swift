@@ -383,8 +383,11 @@ struct SettingsView: View {
                                                         layoutAnalysis: baiduLayout, mixedHandwriting: baiduMixed))
         Task {
             do {
+                // Settings write and Keychain writes are independent; run them
+                // together so saving feels instant when switching providers.
+                async let credentialsSaved: Void = saveCredentials()
                 _ = try await service.updateSettings(settings: next)
-                await saveCredentials()
+                await credentialsSaved
                 actionMessage = "设置已保存。"
                 errorMessage = nil
                 loadedSnapshot = currentSnapshot
@@ -395,10 +398,16 @@ struct SettingsView: View {
     }
 
     /// Writes each provider's key into the roles currently assigned to it.
+    /// Keychain writes run concurrently; sequential awaits made every save
+    /// visibly stall the form while switching providers.
     private func saveCredentials() async {
-        let entries: [(CredentialKind, String)] = keyEntries()
-        for (kind, value) in entries where !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            try? await service.setCredential(kind: kind, value: value)
+        let entries = keyEntries().filter { !$0.1.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        if !entries.isEmpty {
+            await withTaskGroup(of: Void.self) { group in
+                for (kind, value) in entries {
+                    group.addTask { [service] in try? await service.setCredential(kind: kind, value: value) }
+                }
+            }
         }
         credentialStatus = (try? await service.credentialStatus()) ?? credentialStatus
     }

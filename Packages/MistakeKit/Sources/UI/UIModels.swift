@@ -1,6 +1,7 @@
 #if os(iOS)
 import Combine
 import Foundation
+import ImageIO
 import SwiftUI
 import UIKit
 import Contracts
@@ -22,6 +23,7 @@ final class MistakeListViewModel: ObservableObject {
 
     private let service: any AppService
     private var loadTask: Task<Void, Never>?
+    private var searchDebounceTask: Task<Void, Never>?
 
     init(service: any AppService) {
         self.service = service
@@ -30,6 +32,17 @@ final class MistakeListViewModel: ObservableObject {
 
     deinit {
         loadTask?.cancel()
+        searchDebounceTask?.cancel()
+    }
+
+    /// Search re-queries the store; typing should not fire it per keystroke.
+    func scheduleSearchRefresh() {
+        searchDebounceTask?.cancel()
+        searchDebounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            self?.refresh()
+        }
     }
 
     func refresh() {
@@ -140,6 +153,7 @@ final class ArchivedRecordListViewModel: ObservableObject {
 
     private let service: any AppService
     private var loadTask: Task<Void, Never>?
+    private var searchDebounceTask: Task<Void, Never>?
 
     init(service: any AppService) {
         self.service = service
@@ -148,6 +162,16 @@ final class ArchivedRecordListViewModel: ObservableObject {
 
     deinit {
         loadTask?.cancel()
+        searchDebounceTask?.cancel()
+    }
+
+    func scheduleSearchRefresh() {
+        searchDebounceTask?.cancel()
+        searchDebounceTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            guard !Task.isCancelled else { return }
+            self?.refresh()
+        }
     }
 
     func refresh() {
@@ -322,7 +346,13 @@ final class RecordDetailViewModel: ObservableObject {
                 var loadedImage: UIImage?
                 if let assetID = loaded.sourceRegions.first?.assetID {
                     let payload = try? await service.loadImage(assetID: assetID)
-                    if let bytes = payload?.bytes { loadedImage = UIImage(data: bytes) }
+                    // Decoding a full-page photo on the main thread hitched the
+                    // detail push; downsample and decode off the main actor.
+                    if let bytes = payload?.bytes {
+                        loadedImage = await Task.detached(priority: .utility) {
+                            Self.downsampledImage(from: bytes)
+                        }.value
+                    }
                 }
                 guard !Task.isCancelled, let self else { return }
                 self.record = loaded
@@ -334,6 +364,19 @@ final class RecordDetailViewModel: ObservableObject {
                 self.errorMessage = UIErrorMessage.from(error)
             }
         }
+    }
+
+    /// ImageIO downsample: bounded memory, and the JPEG/PNG decode happens on
+    /// the detached task instead of during the next main-thread render pass.
+    private nonisolated static func downsampledImage(from data: Data) -> UIImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 2400,
+            kCGImageSourceShouldCacheImmediately: true,
+        ] as CFDictionary) else { return nil }
+        return UIImage(cgImage: cgImage)
     }
 
     func save(patch: RecordEditPatch) {

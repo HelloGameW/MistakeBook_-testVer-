@@ -119,12 +119,14 @@ public actor FileAssetStore: AssetStore {
 
         let sourceToDerived = try Self.mapping(operation: request.operation, crop: request.cropRect)
         let mappingToParent = try Self.inverseMapping(operation: request.operation, crop: request.cropRect)
+        // Encode once: the same bytes feed the content hash and the staged file.
+        guard let derivedBytes = Self.pngData(output) else { throw AppError(code: .internalFailure, isRetryable: true) }
         let derivedID = UUID()
         let relative = "Assets/derived/\(derivedID.uuidString).png"
         let now = Date()
         let derived = ImageAsset(id: derivedID, parentAssetID: sourceAsset.id, role: .derived,
                                  pixelWidth: output.width, pixelHeight: output.height,
-                                 contentHash: Self.sha256(Self.pngData(output) ?? Data()), mediaType: .png,
+                                 contentHash: Self.sha256(derivedBytes), mediaType: .png,
                                  relativePath: relative,
                                  transform: ImageTransformMetadata(operation: request.operation,
                                                                     sourceRect: request.cropRect,
@@ -132,7 +134,7 @@ public actor FileAssetStore: AssetStore {
                                  createdAt: now)
         let stageURL = stagingURL(transaction.id).appendingPathComponent(relative)
         try fileManager.createDirectory(at: stageURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard Self.writePNG(output, to: stageURL) else { throw AppError(code: .internalFailure, isRetryable: true) }
+        try derivedBytes.write(to: stageURL, options: .atomic)
         assets[derivedID] = derived
         pendingByTransaction[transaction.id, default: []].insert(derivedID)
         let affected = request.affectedRegions.map { region in
@@ -174,10 +176,12 @@ public actor FileAssetStore: AssetStore {
         let relative = "Assets/thumbnail/\(id.uuidString).png"
         let url = rootURL.appendingPathComponent(relative)
         try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard Self.writePNG(image, to: url) else { throw AppError(code: .internalFailure, isRetryable: true) }
+        // Encode once: the same bytes feed the content hash and the file.
+        guard let thumbnailBytes = Self.pngData(image) else { throw AppError(code: .internalFailure, isRetryable: true) }
+        try thumbnailBytes.write(to: url, options: .atomic)
         let asset = ImageAsset(id: id, parentAssetID: sourceAsset.id, role: .thumbnail,
                                pixelWidth: image.width, pixelHeight: image.height,
-                               contentHash: Self.sha256(Self.pngData(image) ?? Data()), mediaType: .png,
+                               contentHash: Self.sha256(thumbnailBytes), mediaType: .png,
                                relativePath: relative,
                                transform: ImageTransformMetadata(operation: nil, sourceRect: nil, mappingToParent: nil),
                                createdAt: Date())
@@ -339,12 +343,6 @@ public actor FileAssetStore: AssetStore {
         guard let destination = CGImageDestinationCreateWithData(data as CFMutableData, "public.png" as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(destination, image, nil)
         return CGImageDestinationFinalize(destination) ? data as Data : nil
-    }
-
-    private static func writePNG(_ image: CGImage, to url: URL) -> Bool {
-        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else { return false }
-        CGImageDestinationAddImage(destination, image, nil)
-        return CGImageDestinationFinalize(destination)
     }
 
     private static func loadCGImage(at url: URL) throws -> CGImage? {

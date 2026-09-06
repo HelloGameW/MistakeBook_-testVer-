@@ -8,6 +8,11 @@ final class StoredRecordEntity {
     @Attribute(.unique) var idString: String
     var payload: Data
     var isSoftDeleted: Bool
+    // Mirror of the payload flag so list queries can filter archived rows in
+    // the store instead of decoding every payload. Newly added column: rows
+    // migrated from older schemas keep the false default; queries re-check the
+    // decoded payload so they stay correct until each row is next written.
+    var isArchived: Bool = false
     var recordRevision: Int
     var contentRevision: Int
     var createdAt: Date
@@ -18,11 +23,11 @@ final class StoredRecordEntity {
 
     init(idString: String, payload: Data, isSoftDeleted: Bool, recordRevision: Int,
          contentRevision: Int, createdAt: Date, updatedAt: Date, searchText: String,
-         subjectID: String?, primaryNodeID: String?) {
+         subjectID: String?, primaryNodeID: String?, isArchived: Bool = false) {
         self.idString = idString; self.payload = payload; self.isSoftDeleted = isSoftDeleted
         self.recordRevision = recordRevision; self.contentRevision = contentRevision
         self.createdAt = createdAt; self.updatedAt = updatedAt; self.searchText = searchText
-        self.subjectID = subjectID; self.primaryNodeID = primaryNodeID
+        self.subjectID = subjectID; self.primaryNodeID = primaryNodeID; self.isArchived = isArchived
     }
 }
 
@@ -33,10 +38,14 @@ final class StoredJobEntity {
     var stateRaw: String
     var attempt: Int
     var updatedAt: Date
+    // Mirror of the payload batch id so per-batch queries avoid decoding every
+    // job payload. Optional so older rows migrate as nil; saveJob backfills it.
+    var batchIDString: String? = nil
 
-    init(idString: String, payload: Data, stateRaw: String, attempt: Int, updatedAt: Date) {
+    init(idString: String, payload: Data, stateRaw: String, attempt: Int, updatedAt: Date,
+         batchIDString: String? = nil) {
         self.idString = idString; self.payload = payload; self.stateRaw = stateRaw
-        self.attempt = attempt; self.updatedAt = updatedAt
+        self.attempt = attempt; self.updatedAt = updatedAt; self.batchIDString = batchIDString
     }
 }
 
@@ -101,8 +110,13 @@ final class StoredDeletionEntity {
 final class StoredTransactionEntity {
     @Attribute(.unique) var idString: String
     var payload: Data
+    // Used only to prune the idempotency log; older rows migrate as nil and
+    // sort as the oldest entries.
+    var createdAt: Date? = nil
 
-    init(idString: String, payload: Data) { self.idString = idString; self.payload = payload }
+    init(idString: String, payload: Data, createdAt: Date? = nil) {
+        self.idString = idString; self.payload = payload; self.createdAt = createdAt
+    }
 }
 
 @Model

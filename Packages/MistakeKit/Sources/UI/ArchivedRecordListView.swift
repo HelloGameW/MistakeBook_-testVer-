@@ -75,7 +75,7 @@ struct ArchivedRecordListView: View {
             }
             .onAppear { model.refresh() }
             .refreshable { model.refresh() }
-            .onChange(of: model.searchText) { _, _ in model.refresh() }
+            .onChange(of: model.searchText) { _, _ in model.scheduleSearchRefresh() }
         }
     }
 

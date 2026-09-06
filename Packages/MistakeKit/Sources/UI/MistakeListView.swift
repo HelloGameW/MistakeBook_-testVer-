@@ -6,6 +6,7 @@ import Contracts
 struct MistakeListView: View {
     let service: any AppService
     let lastBatchID: UUID?
+    let refreshToken: Int
     let onImport: () -> Void
     let onSettings: () -> Void
 
@@ -13,9 +14,11 @@ struct MistakeListView: View {
     @State private var showingExport = false
     @State private var showingQueue = false
 
-    init(service: any AppService, lastBatchID: UUID?, onImport: @escaping () -> Void, onSettings: @escaping () -> Void) {
+    init(service: any AppService, lastBatchID: UUID?, refreshToken: Int = 0,
+         onImport: @escaping () -> Void, onSettings: @escaping () -> Void) {
         self.service = service
         self.lastBatchID = lastBatchID
+        self.refreshToken = refreshToken
         self.onImport = onImport
         self.onSettings = onSettings
         _model = StateObject(wrappedValue: MistakeListViewModel(service: service))
@@ -141,10 +144,12 @@ struct MistakeListView: View {
                 ProcessingQueueSheet(service: service, batchID: batchID)
             }
         }
-        .onChange(of: model.searchText) { _, _ in model.refresh() }
+        .onChange(of: model.searchText) { _, _ in model.scheduleSearchRefresh() }
         .onChange(of: model.subjectID) { _, _ in model.refresh() }
         .onChange(of: model.taxonomyNodeID) { _, _ in model.refresh() }
         .onChange(of: model.reviewRequiredOnly) { _, _ in model.refresh() }
+        .onChange(of: refreshToken) { _, _ in model.refresh() }
+        .onChange(of: lastBatchID) { _, _ in model.refresh() }
         .onAppear { model.refresh() }
         .refreshable { model.refresh() }
     }

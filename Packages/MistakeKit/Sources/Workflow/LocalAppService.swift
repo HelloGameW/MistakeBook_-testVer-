@@ -396,17 +396,9 @@ public actor LocalAppService: AppService {
             base: base, nodeID: nodeID, hypothesisKinds: kinds, times: times, mastery: mastery, due: due) ?? base
     }
 
-    /// 同一考点的累计错题数（含当前记录）。
+    /// 同一考点的累计错题数（含当前记录）。仓库侧走索引计数，避免全表解码。
     private func repeatCount(ofNode nodeID: String) async -> Int {
-        var cursor: String? = nil
-        var count = 0
-        repeat {
-            guard let page = try? await repository.list(query: Self.allRecordsQuery,
-                                                        page: PageRequest(cursor: cursor, limit: 200)) else { return count }
-            count += page.records.filter { $0.classification.primaryNodeID == nodeID }.count
-            cursor = page.nextCursor
-        } while cursor != nil
-        return count
+        (try? await repository.countRecords(primaryNodeID: nodeID)) ?? 0
     }
 
     private static func masteryValue(for state: ReviewState) -> Double {
