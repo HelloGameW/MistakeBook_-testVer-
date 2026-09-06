@@ -628,8 +628,9 @@ public actor LocalAppService: AppService {
             let page: RecognizedPage
             do { page = try await intelligence.ocr.recognize(image: image, options: currentSettingsRecognition()) }
             catch is CancellationError { throw CancellationError() }
-            catch let error as AppError { try await createOCRFailureDraft(job: running, error: error); try await finish(jobID: jobID, state: .succeeded, error: error); return }
-            catch { try await createOCRFailureDraft(job: running, error: AppError(code: .internalFailure, isRetryable: true)); try await finish(jobID: jobID, state: .succeeded, error: AppError(code: .internalFailure, isRetryable: true)); return }
+            // 识别失败：保留原图草稿供人工录入，但任务状态必须如实标记为失败（可重试）。
+            catch let error as AppError { try await createOCRFailureDraft(job: running, error: error); try await finish(jobID: jobID, state: .failed, error: error); return }
+            catch { try await createOCRFailureDraft(job: running, error: AppError(code: .internalFailure, isRetryable: true)); try await finish(jobID: jobID, state: .failed, error: AppError(code: .internalFailure, isRetryable: true)); return }
             try Task.checkCancellation(); _ = try await transition(jobID: jobID, state: .running, stage: .segmenting)
             let candidates: [SegmentationCandidate]
             do { candidates = try await intelligence.segmentation.segment(page: page, options: SegmentationOptions(allowOverlappingRegions: true)) }

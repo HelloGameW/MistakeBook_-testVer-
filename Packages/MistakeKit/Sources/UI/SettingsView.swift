@@ -25,6 +25,7 @@ struct SettingsView: View {
 
     // Secret fields are never populated from Keychain.
     @State private var baiduAPIKey = ""
+    @State private var glmAPIKey = ""
     @State private var baiduSecretKey = ""
 
     @State private var ocrChoice: OCRChoice = .appleVision
@@ -103,21 +104,25 @@ struct SettingsView: View {
         } header: {
             Text("处理方式")
         } footer: {
-            Text("本机处理时，图片和文字不会离开设备。")
+            Text("本机模式下，题目内容不离开设备。")
         }
     }
 
     private var providerSection: some View {
         Section {
             NavigationLink {
-                ProviderDetailView(title: "DeepSeek", showsModelPresets: true, profile: $deepSeek)
+                ProviderDetailView(title: "DeepSeek", showsModelPresets: true, keyKind: .deepSeek,
+                                   profile: $deepSeek,
+                                   keyConfigured: credentialStatus.contains(.ocrModelAPIKey) || credentialStatus.contains(.analysisModelAPIKey) || credentialStatus.contains(.mistakeValueModelAPIKey))
             } label: {
-                providerRow("DeepSeek", detail: deepSeek.model.isEmpty ? "未填写模型" : deepSeek.model)
+                providerRow("DeepSeek", detail: apiStatus(filled: !deepSeek.apiKey.isEmpty || credentialStatus.contains(.ocrModelAPIKey) || credentialStatus.contains(.analysisModelAPIKey) || credentialStatus.contains(.mistakeValueModelAPIKey)))
             }
             NavigationLink {
-                ProviderDetailView(title: "ChatGPT / OpenAI 兼容", showsModelPresets: false, profile: $openAICompatible)
+                ProviderDetailView(title: "ChatGPT / OpenAI 兼容", showsModelPresets: false, keyKind: .openAICompatible,
+                                   profile: $openAICompatible,
+                                   keyConfigured: credentialStatus.contains(.ocrModelAPIKey) || credentialStatus.contains(.analysisModelAPIKey) || credentialStatus.contains(.mistakeValueModelAPIKey))
             } label: {
-                providerRow("ChatGPT / OpenAI 兼容", detail: openAICompatible.model.isEmpty ? "未填写模型" : "已配置")
+                providerRow("ChatGPT / OpenAI 兼容", detail: apiStatus(filled: !openAICompatible.apiKey.isEmpty || credentialStatus.contains(.ocrModelAPIKey) || credentialStatus.contains(.analysisModelAPIKey) || credentialStatus.contains(.mistakeValueModelAPIKey)))
             }
             NavigationLink {
                 BaiduProviderView(strategy: $baiduStrategy, formula: $baiduFormula,
@@ -126,6 +131,11 @@ struct SettingsView: View {
                                   keySaved: credentialStatus.contains(.baiduAPIKey))
             } label: {
                 providerRow("百度教育", detail: credentialStatus.contains(.baiduAPIKey) ? "已配置" : "未填写密钥")
+            }
+            NavigationLink {
+                GLMProviderView(apiKey: $glmAPIKey, keySaved: credentialStatus.contains(.glmAPIKey))
+            } label: {
+                providerRow("智谱 GLM", detail: glmAPIKey.isEmpty ? (credentialStatus.contains(.glmAPIKey) ? "已填入 API" : "未填入 API") : "已填入 API")
             }
             NavigationLink {
                 AppleIntelligenceView(enabled: $appleEnhanced, capabilities: capabilities)
@@ -145,20 +155,23 @@ struct SettingsView: View {
         }
     }
 
+    private func apiStatus(filled: Bool) -> String { filled ? "已填入 API" : "未填入 API" }
+
     private var assignmentSection: some View {
         Section {
             LabeledContent("文字识别用") {
                 Picker("文字识别用", selection: $ocrChoice) {
-                    Text("手机本地识别").tag(OCRChoice.appleVision)
+                    Text("本机识别").tag(OCRChoice.appleVision)
                     Text("DeepSeek").tag(OCRChoice.deepSeek)
                     Text("ChatGPT").tag(OCRChoice.openAICompatible)
+                    Text("智谱 GLM").tag(OCRChoice.glm)
                     Text("百度教育").tag(OCRChoice.baiduEducation)
                 }
                 .labelsHidden()
             }
             LabeledContent("错因分析用") {
                 Picker("错因分析用", selection: $analysisChoice) {
-                    Text("本机规则").tag(AnalysisChoice.localRules)
+                    Text("规则引擎").tag(AnalysisChoice.localRules)
                     Text("Apple 智能").tag(AnalysisChoice.appleIntelligence)
                     Text("DeepSeek").tag(AnalysisChoice.deepSeek)
                     Text("ChatGPT").tag(AnalysisChoice.openAICompatible)
@@ -167,17 +180,17 @@ struct SettingsView: View {
             }
             LabeledContent("复习价值用") {
                 Picker("复习价值用", selection: $valueChoice) {
-                    Text("本机估算").tag(ValueChoice.local)
+                    Text("本地评估").tag(ValueChoice.local)
                     Text("DeepSeek").tag(ValueChoice.deepSeek)
                     Text("ChatGPT").tag(ValueChoice.openAICompatible)
                 }
                 .labelsHidden()
             }
-        } header: {
-            Text("谁负责什么")
-        } footer: {
-            Text("选中的服务商会使用你在上面填写的密钥和模型。")
-        }
+                } header: {
+                    Text("服务分配")
+                } footer: {
+                    Text("所选服务商将使用上方填写的密钥与模型。")
+                }
     }
 
     private var saveSection: some View {
@@ -224,9 +237,9 @@ struct SettingsView: View {
 
     private var modeExplanation: String {
         switch processingMode {
-        case .local: "全部在本机完成，最快且不联网。"
-        case .api: "按上面“谁负责什么”的分配，调用对应服务商。"
-        case .automatic: "先在本机处理，效果不好时才联网。"
+        case .local: "全部处理在本机完成，不依赖网络。"
+        case .api: "按照服务分配调用对应的服务商。"
+        case .automatic: "优先本机处理，无法满足时转入联网处理。"
         }
     }
 
@@ -278,6 +291,7 @@ struct SettingsView: View {
         switch s.resolvedOCRProvider {
         case .appleVision: return .appleVision
         case .baiduEducation: return .baiduEducation
+        case .glm: return .glm
         case .modelAPI: return s.ocrModelAPI?.isDeepSeek == true ? .deepSeek : .openAICompatible
         }
     }
@@ -322,6 +336,7 @@ struct SettingsView: View {
         switch ocrChoice {
         case .appleVision: ocrProvider = .appleVision; ocrModelAPI = nil
         case .baiduEducation: ocrProvider = .baiduEducation; ocrModelAPI = nil
+        case .glm: ocrProvider = .glm; ocrModelAPI = nil
         case .deepSeek: ocrProvider = .modelAPI; ocrModelAPI = deepSeek.configuration()
         case .openAICompatible: ocrProvider = .modelAPI; ocrModelAPI = openAICompatible.configuration()
         }
@@ -329,7 +344,8 @@ struct SettingsView: View {
         var analysisProvider: AnalysisProviderKind
         switch analysisChoice {
         case .localRules: analysisProvider = .localRules; analysisModelAPI = nil
-        case .appleIntelligence: analysisProvider = .appleFoundationModels; analysisModelAPI = nil
+        // Apple 智能关闭时，错因分析回落到本机规则，保证开关真实生效。
+        case .appleIntelligence: analysisProvider = appleEnhanced ? .appleFoundationModels : .localRules; analysisModelAPI = nil
         case .deepSeek: analysisProvider = .modelAPI; analysisModelAPI = deepSeek.configuration()
         case .openAICompatible: analysisProvider = .modelAPI; analysisModelAPI = openAICompatible.configuration()
         }
@@ -374,6 +390,7 @@ struct SettingsView: View {
         switch ocrChoice {
         case .deepSeek: entries.append((.ocrModelAPIKey, deepSeek.apiKey))
         case .openAICompatible: entries.append((.ocrModelAPIKey, openAICompatible.apiKey))
+        case .glm: entries.append((.glmAPIKey, glmAPIKey))
         case .baiduEducation:
             entries.append((.baiduAPIKey, baiduAPIKey))
             entries.append((.baiduSecretKey, baiduSecretKey))
@@ -393,6 +410,11 @@ struct SettingsView: View {
     }
 
     private func validate() -> Bool {
+        if ocrChoice == .glm, glmAPIKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !credentialStatus.contains(.glmAPIKey) {
+            errorMessage = "文字识别选择的智谱 GLM 还没有填写密钥，请进入该服务商页面填写。"
+            return false
+        }
         switch ocrChoice {
         case .deepSeek where deepSeek.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
              .openAICompatible where openAICompatible.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
@@ -480,9 +502,12 @@ private struct ProviderProfile: Equatable {
     }
 }
 
-private enum OCRChoice: Hashable { case appleVision, deepSeek, openAICompatible, baiduEducation }
+private enum OCRChoice: Hashable { case appleVision, deepSeek, openAICompatible, glm, baiduEducation }
 private enum AnalysisChoice: Hashable { case localRules, appleIntelligence, deepSeek, openAICompatible }
 private enum ValueChoice: Hashable { case local, deepSeek, openAICompatible }
+
+/// 服务商密钥验证的目标端点。
+private enum KeyProviderKind: Hashable { case deepSeek, openAICompatible, glm, baiduEducation }
 
 private struct SettingsSnapshot: Equatable {
     var processingMode: ProcessingMode
@@ -500,11 +525,16 @@ private struct SettingsSnapshot: Equatable {
 }
 
 /// Second-level page for an OpenAI-compatible provider: key, model and custom
-/// endpoint settings live together here.
+/// endpoint settings live together here, plus key verification.
 private struct ProviderDetailView: View {
     let title: String
     let showsModelPresets: Bool
+    let keyKind: KeyProviderKind
     @Binding var profile: ProviderProfile
+    let keyConfigured: Bool
+
+    @State private var verification: (passed: Bool, message: String)?
+    @State private var isVerifying = false
 
     var body: some View {
         Form {
@@ -512,10 +542,21 @@ private struct ProviderDetailView: View {
                 SecureField("粘贴密钥（保存后不再显示）", text: $profile.apiKey)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+                HStack {
+                    Button(isVerifying ? "验证中…" : "验证可用性") { verifyKey() }
+                        .buttonStyle(.bordered)
+                        .disabled(isVerifying || profile.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if let verification {
+                        Label(verification.message,
+                              systemImage: verification.passed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(verification.passed ? Color.green : Color.orange)
+                    }
+                }
             } header: {
-                Text("API 密钥")
+                keyStatusHeader
             } footer: {
-                Text("密钥只保存在本机钥匙串里，不会显示出来；留空则保持原样。")
+                Text("密钥仅存储于本机钥匙串，保存后不再显示；留空表示不修改。")
             }
 
             Section {
@@ -525,13 +566,13 @@ private struct ProviderDetailView: View {
                 if showsModelPresets {
                     Menu("选择常用模型") {
                         Button("文字模型 deepseek-v4-flash") { profile.model = "deepseek-v4-flash" }
-                        Button("能看图的模型 deepseek-v4-flash-vision-exp") { profile.model = "deepseek-v4-flash-vision-exp" }
+                        Button("视觉模型 deepseek-v4-flash-vision-exp") { profile.model = "deepseek-v4-flash-vision-exp" }
                     }
                 }
             } header: {
                 Text("模型")
             } footer: {
-                Text("文字识别必须选择“能看图的模型”。")
+                Text("文字识别需选择支持视觉输入的模型。")
             }
 
             Section {
@@ -545,11 +586,161 @@ private struct ProviderDetailView: View {
             } header: {
                 Text("自定义设置")
             } footer: {
-                Text("不确定时保持默认即可。")
+                Text("无特殊需求时保持默认配置。")
             }
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var keyStatusHeader: some View {
+        HStack {
+            Text("API 密钥")
+            Spacer()
+            Text(profile.apiKey.isEmpty ? (keyConfigured ? "已填入 API" : "未填入 API") : "已填入 API")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func verifyKey() {
+        isVerifying = true
+        Task {
+            verification = await ProviderKeyVerifier.verify(kind: keyKind, key: profile.apiKey,
+                                                            secretKey: nil, baseURL: profile.baseURL)
+            isVerifying = false
+        }
+    }
+}
+
+/// 服务商密钥可用性验证：发起一次需鉴权的轻量请求，
+/// HTTP 401/403 视为密钥无效，其余响应视为密钥已被服务端受理。
+private enum ProviderKeyVerifier {
+    static func verify(kind: KeyProviderKind, key: String, secretKey: String?,
+                       baseURL: String?) async -> (passed: Bool, message: String) {
+        switch kind {
+        case .deepSeek:
+            return await bearerCheck(url: "https://api.deepseek.com/models", key: key)
+        case .openAICompatible:
+            let base = (baseURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+                ? baseURL!.trimmingCharacters(in: .whitespacesAndNewlines) : "https://api.openai.com/v1"
+            return await bearerCheck(url: base.hasSuffix("/") ? base + "models" : base + "/models", key: key)
+        case .glm:
+            return await glmCheck(key: key)
+        case .baiduEducation:
+            return await baiduCheck(key: key, secret: secretKey ?? "")
+        }
+    }
+
+    private static func bearerCheck(url: String, key: String) async -> (Bool, String) {
+        guard let requestURL = URL(string: url) else { return (false, "服务地址无效") }
+        var request = URLRequest(url: requestURL)
+        request.timeoutInterval = 20
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        return await judge(request)
+    }
+
+    private static func glmCheck(key: String) async -> (Bool, String) {
+        guard let url = URL(string: "https://open.bigmodel.cn/api/paas/v4/files/ocr"),
+              let probe = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==") else {
+            return (false, "内部错误")
+        }
+        let boundary = "mistakebook.verify.\(UUID().uuidString)"
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"tool_type\"\r\n\r\nhand_write\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"file\"; filename=\"probe.png\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: image/png\r\n\r\n".data(using: .utf8)!)
+        body.append(probe)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+        return await judge(request)
+    }
+
+    private static func baiduCheck(key: String, secret: String) async -> (Bool, String) {
+        var components = URLComponents(string: "https://aip.baidubce.com/oauth/2.0/token")!
+        components.queryItems = [URLQueryItem(name: "grant_type", value: "client_credentials"),
+                                 URLQueryItem(name: "client_id", value: key),
+                                 URLQueryItem(name: "client_secret", value: secret)]
+        var request = URLRequest(url: components.url!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 20
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard status == 200 else { return (false, "服务响应异常（\(status)）") }
+            struct TokenResponse: Decodable { let access_token: String? }
+            let token = (try? JSONDecoder().decode(TokenResponse.self, from: data))?.access_token
+            return token?.isEmpty == false ? (true, "验证通过") : (false, "密钥无效或无权限")
+        } catch { return (false, "网络不可用或请求失败") }
+    }
+
+    private static func judge(_ request: URLRequest) async -> (Bool, String) {
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            switch status {
+            case 401, 403: return (false, "密钥无效或无权限")
+            case 200..<300: return (true, "验证通过")
+            default: return (false, "服务响应异常（\(status)）")
+            }
+        } catch { return (false, "网络不可用或请求失败") }
+    }
+}
+
+/// 智谱 GLM OCR 服务商页：密钥填写 + 可用性验证。
+private struct GLMProviderView: View {
+    @Binding var apiKey: String
+    let keySaved: Bool
+
+    @State private var verification: (passed: Bool, message: String)?
+    @State private var isVerifying = false
+
+    var body: some View {
+        Form {
+            Section {
+                SecureField("粘贴密钥（保存后不再显示）", text: $apiKey)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                HStack {
+                    Button(isVerifying ? "验证中…" : "验证可用性") { verifyKey() }
+                        .buttonStyle(.bordered)
+                        .disabled(isVerifying || apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if let verification {
+                        Label(verification.message,
+                              systemImage: verification.passed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(verification.passed ? Color.green : Color.orange)
+                    }
+                }
+            } header: {
+                HStack {
+                    Text("API 密钥")
+                    Spacer()
+                    Text(apiKey.isEmpty ? (keySaved ? "已填入 API" : "未填入 API") : "已填入 API")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            } footer: {
+                Text("密钥仅存储于本机钥匙串，保存后不再显示；留空表示不修改。密钥可在智谱开放平台控制台获取。")
+            }
+        }
+        .navigationTitle("智谱 GLM")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func verifyKey() {
+        isVerifying = true
+        Task {
+            verification = await ProviderKeyVerifier.verify(kind: .glm, key: apiKey, secretKey: nil, baseURL: nil)
+            isVerifying = false
+        }
     }
 }
 
@@ -562,15 +753,35 @@ private struct BaiduProviderView: View {
     @Binding var secretKey: String
     let keySaved: Bool
 
+    @State private var verification: (passed: Bool, message: String)?
+    @State private var isVerifying = false
+
     var body: some View {
         Form {
             Section {
                 SecureField("粘贴 API Key", text: $apiKey)
                 SecureField("粘贴 Secret Key", text: $secretKey)
+                HStack {
+                    Button(isVerifying ? "验证中…" : "验证可用性") { verifyKey() }
+                        .buttonStyle(.bordered)
+                        .disabled(isVerifying || apiKey.isEmpty || secretKey.isEmpty)
+                    if let verification {
+                        Label(verification.message,
+                              systemImage: verification.passed ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.footnote)
+                            .foregroundStyle(verification.passed ? Color.green : Color.orange)
+                    }
+                }
             } header: {
-                Text("API 密钥")
+                HStack {
+                    Text("API 密钥")
+                    Spacer()
+                    Text(keySaved ? "已填入 API" : "未填入 API")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             } footer: {
-                Text("两个密钥都可以在百度智能云控制台找到；保存后不再显示。")
+                Text("两个密钥均可在百度智能云控制台获取；仅存储于本机钥匙串，保存后不再显示。")
             }
             Section {
                 Picker("识别方式", selection: $strategy) {
@@ -587,12 +798,13 @@ private struct BaiduProviderView: View {
         }
         .navigationTitle("百度教育")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Text(keySaved ? "已配置" : "")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+    }
+
+    private func verifyKey() {
+        isVerifying = true
+        Task {
+            verification = await ProviderKeyVerifier.verify(kind: .baiduEducation, key: apiKey, secretKey: secretKey, baseURL: nil)
+            isVerifying = false
         }
     }
 }
@@ -606,7 +818,7 @@ private struct AppleIntelligenceView: View {
             Section {
                 Toggle("用设备端智能分析错因", isOn: $enabled)
             } footer: {
-                Text("不联网、不留记录。是否可用取决于机型和地区设置。")
+                Text("该能力在设备端运行，不产生网络请求；可用性取决于机型与地区设置。")
             }
             Section("当前状态") {
                 ForEach(capabilities.features.filter { $0.feature == .enhancedAnalysis || $0.feature == .basicAnalysis }, id: \.featureKey) { feature in

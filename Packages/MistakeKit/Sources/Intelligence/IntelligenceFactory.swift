@@ -10,7 +10,8 @@ public enum IntelligenceFactory {
         let vision = VisionOCRService()
         let modelOCR = ModelAPIOCRService(credentialStore: credentialStore)
         let baiduOCR = BaiduEducationOCRService(credentialStore: credentialStore)
-        let ocr = RoutingOCRService(vision: vision, model: modelOCR, baidu: baiduOCR)
+        let glmOCR = GLMOCRService(credentialStore: credentialStore)
+        let ocr = RoutingOCRService(vision: vision, model: modelOCR, baidu: baiduOCR, glm: glmOCR)
 
         let foundation = FoundationModelsAnalysisService()
         let modelAnalysis = ModelAPIAnalysisService(credentialStore: credentialStore)

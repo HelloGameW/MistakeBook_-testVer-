@@ -31,7 +31,7 @@ struct ProcessingQueueSheet: View {
                         } else {
                             HStack(spacing: 10) {
                                 ProgressView()
-                                Text("正在处理，可以离开这个页面，稍后回来看进度。")
+                                Text("任务处理中。")
                                     .foregroundStyle(.secondary)
                             }
                         }
@@ -45,7 +45,7 @@ struct ProcessingQueueSheet: View {
                     } header: {
                         Text("任务（\(orderedJobs.count) 项）")
                     } footer: {
-                        Text("每一项对应一页图片；失败的任务可以重试，不会影响已完成的页。")
+                        Text("每项任务对应一页图片；失败任务可重试，不影响已完成页面。")
                     }
                 } else {
                     Section { ProgressView("正在载入处理状态…") }

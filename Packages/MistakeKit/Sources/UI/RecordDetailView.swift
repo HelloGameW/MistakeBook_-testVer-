@@ -653,7 +653,7 @@ struct NormalizedRegionEditor: View {
                     .frame(width: rect.width, height: rect.height)
                     .position(x: rect.midX, y: rect.midY)
                     .contentShape(Rectangle().inset(by: -20))
-                    .gesture(DragGesture().onChanged { value in
+                    .gesture(DragGesture(minimumDistance: 0).onChanged { value in
                         if dragStart == nil { dragStart = region.normalizedRect }
                         guard let start = dragStart else { return }
                         let dx = value.translation.width / max(layout.imageSize.width, 1)

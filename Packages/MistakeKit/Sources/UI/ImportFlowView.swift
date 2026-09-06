@@ -161,9 +161,9 @@ struct ImportFlowView: View {
     private var recordModeExplanation: String {
         switch recordMode {
         case .text:
-            return "识别文字作为题目内容，可编辑与检索。"
+            return "识别文字作为题目内容，支持编辑与检索。"
         case .image:
-            return "按题号自动截取每道题的图片作为题目内容；识别文字仍会保留用于搜索，之后可在详情页手动框取调整区域。"
+            return "按题号自动截取题目区域图片作为题目内容；识别文字保留用于检索，区域可在详情页手动调整。"
         }
     }
 

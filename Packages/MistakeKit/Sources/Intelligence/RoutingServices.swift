@@ -5,10 +5,11 @@ public struct RoutingOCRService: OCRService, Sendable {
     let vision: VisionOCRService
     let model: ModelAPIOCRService
     let baidu: BaiduEducationOCRService
+    let glm: GLMOCRService
 
     public init(vision: VisionOCRService = VisionOCRService(), model: ModelAPIOCRService,
-                baidu: BaiduEducationOCRService) {
-        self.vision = vision; self.model = model; self.baidu = baidu
+                baidu: BaiduEducationOCRService, glm: GLMOCRService) {
+        self.vision = vision; self.model = model; self.baidu = baidu; self.glm = glm
     }
 
     public func supportedLanguages() async throws -> [String] {
@@ -40,6 +41,7 @@ public struct RoutingOCRService: OCRService, Sendable {
         case .appleVision: return try await vision.recognize(image: image, options: options)
         case .modelAPI: return try await model.recognize(image: image, options: options)
         case .baiduEducation: return try await baidu.recognize(image: image, options: options)
+        case .glm: return try await glm.recognize(image: image, options: options)
         }
     }
 
