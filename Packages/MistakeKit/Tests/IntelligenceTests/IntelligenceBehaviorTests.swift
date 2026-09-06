@@ -1,7 +1,7 @@
 import XCTest
 import UIKit
 import Contracts
-import Intelligence
+@testable import Intelligence
 
 final class IntelligenceBehaviorTests: XCTestCase {
     func testSegmentationDoesNotTreatOptionNumbersAsQuestionStarts() async throws {
@@ -127,18 +127,21 @@ final class IntelligenceBehaviorTests: XCTestCase {
             UIColor.black.setFill()
             context.fill(CGRect(x: 10, y: 10, width: 80, height: 2))
         }
-        XCTAssertFalse(await detector.detectGradingMarks(payload: clean, focus: nil))
+        // XCTest 断言宏的自动闭包不支持 await，先取值再断言。
+        let cleanHasMarks = await detector.detectGradingMarks(payload: clean, focus: nil)
+        XCTAssertFalse(cleanHasMarks)
         let marked = try render { context in
             UIColor.red.setFill()
             context.fill(CGRect(x: 10, y: 40, width: 60, height: 4))
         }
-        XCTAssertTrue(await detector.detectGradingMarks(payload: marked, focus: nil))
+        let markedHasMarks = await detector.detectGradingMarks(payload: marked, focus: nil)
+        XCTAssertTrue(markedHasMarks)
         let outside = try render { context in
             UIColor.red.setFill()
             context.fill(CGRect(x: 10, y: 90, width: 60, height: 4))
         }
-        XCTAssertFalse(await detector.detectGradingMarks(payload: outside, focus: try NormalizedRect(x: 0, y: 0, width: 1, height: 0.5)),
-                       "marks outside the focused region must be ignored")
+        let outsideHasMarks = await detector.detectGradingMarks(payload: outside, focus: try NormalizedRect(x: 0, y: 0, width: 1, height: 0.5))
+        XCTAssertFalse(outsideHasMarks, "marks outside the focused region must be ignored")
     }
 
     func testCurriculumQuantificationScoresKnownNodeAndFallsBackOnUnknown() async throws {
