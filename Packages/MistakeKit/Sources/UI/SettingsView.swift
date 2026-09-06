@@ -44,149 +44,22 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let errorMessage { Section { ErrorBanner(message: errorMessage) } }
-                if let actionMessage { Section { NoticeBanner(message: actionMessage) } }
-
-                Section {
-                    Picker("处理方式", selection: $processingMode) {
-                        Text("本机处理").tag(ProcessingMode.local)
-                        Text("联网处理").tag(ProcessingMode.api)
-                        Text("自动").tag(ProcessingMode.automatic)
-                    }
-                    .pickerStyle(.segmented)
-                    Text(modeExplanation)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    TextField("识别语言（逗号分隔）", text: $languageText)
-                } header: {
-                    Text("处理方式")
-                } footer: {
-                    Text("本机处理时，图片和文字不会离开设备。")
-                }
-
-                Section("服务商") {
-                    NavigationLink {
-                        ProviderDetailView(title: "DeepSeek", showsModelPresets: true, profile: $deepSeek)
-                    } label: {
-                        LabeledContent("DeepSeek") {
-                            Text(deepSeek.model.isEmpty ? "未填写模型" : deepSeek.model)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    NavigationLink {
-                        ProviderDetailView(title: "ChatGPT / OpenAI 兼容", showsModelPresets: false, profile: $openAICompatible)
-                    } label: {
-                        LabeledContent("ChatGPT / OpenAI 兼容") {
-                            Text(openAICompatible.model.isEmpty ? "未填写模型" : "已配置")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    NavigationLink {
-                        BaiduProviderView(strategy: $baiduStrategy, formula: $baiduFormula,
-                                          layout: $baiduLayout, mixed: $baiduMixed,
-                                          apiKey: $baiduAPIKey, secretKey: $baiduSecretKey,
-                                          keySaved: credentialStatus.contains(.baiduAPIKey))
-                    } label: {
-                        LabeledContent("百度教育") {
-                            Text(credentialStatus.contains(.baiduAPIKey) ? "已配置" : "未填写密钥")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    NavigationLink {
-                        AppleIntelligenceView(enabled: $appleEnhanced, capabilities: capabilities)
-                    } label: {
-                        LabeledContent("Apple 智能") {
-                            Text(appleEnhanced ? "已开启" : "已关闭")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                } header: {
-                    Text("服务商")
-                } footer: {
-                    Text("在这里填写密钥和模型；下面决定每件事分别交给谁做。")
-                }
-
-                Section {
-                    LabeledContent("文字识别用") {
-                        Picker("文字识别用", selection: $ocrChoice) {
-                            Text("手机本地识别").tag(OCRChoice.appleVision)
-                            Text("DeepSeek").tag(OCRChoice.deepSeek)
-                            Text("ChatGPT").tag(OCRChoice.openAICompatible)
-                            Text("百度教育").tag(OCRChoice.baiduEducation)
-                        }
-                        .labelsHidden()
-                    }
-                    LabeledContent("错因分析用") {
-                        Picker("错因分析用", selection: $analysisChoice) {
-                            Text("本机规则").tag(AnalysisChoice.localRules)
-                            Text("Apple 智能").tag(AnalysisChoice.appleIntelligence)
-                            Text("DeepSeek").tag(AnalysisChoice.deepSeek)
-                            Text("ChatGPT").tag(AnalysisChoice.openAICompatible)
-                        }
-                        .labelsHidden()
-                    }
-                    LabeledContent("复习价值用") {
-                        Picker("复习价值用", selection: $valueChoice) {
-                            Text("本机估算").tag(ValueChoice.local)
-                            Text("DeepSeek").tag(ValueChoice.deepSeek)
-                            Text("ChatGPT").tag(ValueChoice.openAICompatible)
-                        }
-                        .labelsHidden()
-                    }
-                } header: {
-                    Text("谁负责什么")
-                } footer: {
-                    Text("选中的服务商会使用你在上面填写的密钥和模型。")
-                }
-
-                Section("保存") {
-                    Button(isSaving ? "正在保存…" : "保存设置") { save() }
-                        .disabled(isSaving)
-                    if !credentialStatus.configured.isEmpty {
-                        Menu("清除已保存的密钥") {
-                            ForEach(credentialStatus.configured, id: \.self) { kind in
-                                Button(credentialTitle(kind), role: .destructive) { clearCredential(kind) }
-                            }
-                        }
-                    }
-                }
-
-                Section("服务状态") {
-                    if isLoading && capabilities.features.isEmpty {
-                        HStack { ProgressView(); Text("正在检查…") }
-                    }
-                    ForEach(capabilities.features, id: \.featureKey) { feature in
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack {
-                                Text(featureTitle(feature.feature))
-                                Spacer()
-                                Text(UIStrings.capabilityState(feature.state)).foregroundStyle(capabilityColor(feature.state))
-                            }
-                            Text(feature.reason).font(.caption).foregroundStyle(.secondary)
-                        }
-                        .accessibilityElement(children: .combine)
-                    }
-                }
-
-                Section("数据") {
-                    Button("导出全部题目") { showingAllExport = true }
-                    Button("清空本机数据", role: .destructive) { prepareClear() }
-                    Text("清空会终止任务并删除题目、图片、撤销记录、设置和已保存的密钥，确认后无法找回。")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
+                messageSections
+                modeSection
+                providerSection
+                assignmentSection
+                saveSection
+                statusSection
+                dataSection
             }
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { attemptClose() }
-                }
-            }
+            .toolbar { closeToolbar }
             .interactiveDismissDisabled(hasUnsavedChanges)
             .task { load() }
             .sheet(isPresented: $showingAllExport) { AllRecordsExportSheet(service: service) }
             .alert("是否保存已更改的设置？", isPresented: $showingSavePrompt) {
-                Button("保存") { Task { await saveAndClose() } }
+                Button("保存") { Task { await saveAndClose(close: false) } }
                 Button("不保存", role: .destructive) { dismiss() }
                 Button("取消", role: .cancel) {}
             } message: {
@@ -198,6 +71,154 @@ struct SettingsView: View {
             } message: { confirmation in
                 Text("将删除 \(confirmation.inventory.recordCount) 道错题、\(confirmation.inventory.assetCount) 张图片，并停止 \(confirmation.inventory.activeJobCount) 个进行中的任务。")
             }
+        }
+    }
+
+    // The form is split into one property per section: a single giant body
+    // expression previously exceeded the type-checker's time budget.
+    @ViewBuilder
+    private var messageSections: some View {
+        if let errorMessage { Section { ErrorBanner(message: errorMessage) } }
+        if let actionMessage { Section { NoticeBanner(message: actionMessage) } }
+    }
+
+    private var closeToolbar: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("关闭") { attemptClose() }
+        }
+    }
+
+    private var modeSection: some View {
+        Section {
+            Picker("处理方式", selection: $processingMode) {
+                Text("本机处理").tag(ProcessingMode.local)
+                Text("联网处理").tag(ProcessingMode.api)
+                Text("自动").tag(ProcessingMode.automatic)
+            }
+            .pickerStyle(.segmented)
+            Text(modeExplanation)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            TextField("识别语言（逗号分隔）", text: $languageText)
+        } header: {
+            Text("处理方式")
+        } footer: {
+            Text("本机处理时，图片和文字不会离开设备。")
+        }
+    }
+
+    private var providerSection: some View {
+        Section("服务商") {
+            NavigationLink {
+                ProviderDetailView(title: "DeepSeek", showsModelPresets: true, profile: $deepSeek)
+            } label: {
+                providerRow("DeepSeek", detail: deepSeek.model.isEmpty ? "未填写模型" : deepSeek.model)
+            }
+            NavigationLink {
+                ProviderDetailView(title: "ChatGPT / OpenAI 兼容", showsModelPresets: false, profile: $openAICompatible)
+            } label: {
+                providerRow("ChatGPT / OpenAI 兼容", detail: openAICompatible.model.isEmpty ? "未填写模型" : "已配置")
+            }
+            NavigationLink {
+                BaiduProviderView(strategy: $baiduStrategy, formula: $baiduFormula,
+                                  layout: $baiduLayout, mixed: $baiduMixed,
+                                  apiKey: $baiduAPIKey, secretKey: $baiduSecretKey,
+                                  keySaved: credentialStatus.contains(.baiduAPIKey))
+            } label: {
+                providerRow("百度教育", detail: credentialStatus.contains(.baiduAPIKey) ? "已配置" : "未填写密钥")
+            }
+            NavigationLink {
+                AppleIntelligenceView(enabled: $appleEnhanced, capabilities: capabilities)
+            } label: {
+                providerRow("Apple 智能", detail: appleEnhanced ? "已开启" : "已关闭")
+            }
+        } header: {
+            Text("服务商")
+        } footer: {
+            Text("在这里填写密钥和模型；下面决定每件事分别交给谁做。")
+        }
+    }
+
+    private func providerRow(_ name: String, detail: String) -> some View {
+        LabeledContent(name) {
+            Text(detail).foregroundStyle(.secondary)
+        }
+    }
+
+    private var assignmentSection: some View {
+        Section {
+            LabeledContent("文字识别用") {
+                Picker("文字识别用", selection: $ocrChoice) {
+                    Text("手机本地识别").tag(OCRChoice.appleVision)
+                    Text("DeepSeek").tag(OCRChoice.deepSeek)
+                    Text("ChatGPT").tag(OCRChoice.openAICompatible)
+                    Text("百度教育").tag(OCRChoice.baiduEducation)
+                }
+                .labelsHidden()
+            }
+            LabeledContent("错因分析用") {
+                Picker("错因分析用", selection: $analysisChoice) {
+                    Text("本机规则").tag(AnalysisChoice.localRules)
+                    Text("Apple 智能").tag(AnalysisChoice.appleIntelligence)
+                    Text("DeepSeek").tag(AnalysisChoice.deepSeek)
+                    Text("ChatGPT").tag(AnalysisChoice.openAICompatible)
+                }
+                .labelsHidden()
+            }
+            LabeledContent("复习价值用") {
+                Picker("复习价值用", selection: $valueChoice) {
+                    Text("本机估算").tag(ValueChoice.local)
+                    Text("DeepSeek").tag(ValueChoice.deepSeek)
+                    Text("ChatGPT").tag(ValueChoice.openAICompatible)
+                }
+                .labelsHidden()
+            }
+        } header: {
+            Text("谁负责什么")
+        } footer: {
+            Text("选中的服务商会使用你在上面填写的密钥和模型。")
+        }
+    }
+
+    private var saveSection: some View {
+        Section("保存") {
+            Button(isSaving ? "正在保存…" : "保存设置") { save() }
+                .disabled(isSaving)
+            if !credentialStatus.configured.isEmpty {
+                Menu("清除已保存的密钥") {
+                    ForEach(credentialStatus.configured, id: \.self) { kind in
+                        Button(credentialTitle(kind), role: .destructive) { clearCredential(kind) }
+                    }
+                }
+            }
+        }
+    }
+
+    private var statusSection: some View {
+        Section("服务状态") {
+            if isLoading && capabilities.features.isEmpty {
+                HStack { ProgressView(); Text("正在检查…") }
+            }
+            ForEach(capabilities.features, id: \.featureKey) { feature in
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        Text(featureTitle(feature.feature))
+                        Spacer()
+                        Text(UIStrings.capabilityState(feature.state)).foregroundStyle(capabilityColor(feature.state))
+                    }
+                    Text(feature.reason).font(.caption).foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
+
+    private var dataSection: some View {
+        Section("数据") {
+            Button("导出全部题目") { showingAllExport = true }
+            Button("清空本机数据", role: .destructive) { prepareClear() }
+            Text("清空会终止任务并删除题目、图片、撤销记录、设置和已保存的密钥，确认后无法找回。")
+                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 

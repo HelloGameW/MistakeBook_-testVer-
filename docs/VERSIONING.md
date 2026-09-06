@@ -13,4 +13,4 @@ sh Scripts/bump-version.sh bugfix
 sh Scripts/bump-version.sh feature
 ```
 
-当前版本为 `0.4.2`，构建号为 `17`。`0.4.2` 修复 ImportFlowView 新增 onBatch 回调时未同步更新 init 签名导致的"多余参数"编译错误；已对 0.4.x 全部新 API 的调用点与定义做逐一核对审计。
+当前版本为 `0.4.3`，构建号为 `18`。`0.4.3` 修复设置页 SwiftUI body 表达式超出类型检查时间预算的问题（CI 报 "the compiler is unable to type-check this expression in reasonable time"），已将巨型 body 拆分为七个独立的 Section 子视图属性。
