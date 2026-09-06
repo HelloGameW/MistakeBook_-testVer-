@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Controls the app's appearance independently of the system setting when the
 /// user chooses to do so. The default remains fully system-driven.
-public enum AppAppearanceMode: String, CaseIterable, Identifiable, Sendable {
+public enum AppAppearanceMode: String, CaseIterable, Identifiable, Hashable, Sendable {
     case system
     case light
     case dark
