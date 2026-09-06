@@ -169,20 +169,25 @@ public struct BaiduEducationOCRService: OCRService, Sendable {
         if let x = value as? Double { return x }; if let x = value as? Int { return Double(x) }
         if let x = value as? NSNumber { return x.doubleValue }; if let x = value as? String { return Double(x) }; return nil
     }
-    private static func int(_ value: Any?) -> Int? { double(value).map(Int.init) }
+    private static func int(_ value: Any?) -> Int? {
+        guard let number = double(value), number.isFinite else { return nil }
+        return Int(exactly: number)
+    }
 }
 
 private actor BaiduTokenProvider {
     private let credentialStore: any CredentialStore
-    private var cached: (value: String, expiresAt: Date)?
+    private var cached: (value: String, expiresAt: Date, apiKey: String, secret: String)?
     init(credentialStore: any CredentialStore) { self.credentialStore = credentialStore }
 
     func token() async throws -> String {
-        if let cached, cached.expiresAt.timeIntervalSinceNow > 300 { return cached.value }
         guard let apiKey = try await credentialStore.read(kind: .baiduAPIKey), !apiKey.isEmpty,
               let secret = try await credentialStore.read(kind: .baiduSecretKey), !secret.isEmpty else {
+            cached = nil
             throw AppError(code: .authenticationFailed)
         }
+        if let cached, cached.apiKey == apiKey, cached.secret == secret,
+           cached.expiresAt.timeIntervalSinceNow > 300 { return cached.value }
         var components = URLComponents(string: "https://aip.baidubce.com/oauth/2.0/token")!
         components.queryItems = [URLQueryItem(name: "grant_type", value: "client_credentials"),
                                  URLQueryItem(name: "client_id", value: apiKey),
@@ -194,7 +199,7 @@ private actor BaiduTokenProvider {
         struct TokenResponse: Decodable { let access_token: String?; let expires_in: Int?; let error: String? }
         guard let response = try? JSONDecoder().decode(TokenResponse.self, from: data),
               let token = response.access_token, !token.isEmpty else { throw AppError(code: .authenticationFailed) }
-        cached = (token, Date().addingTimeInterval(TimeInterval(max(600, response.expires_in ?? 2_592_000))))
+        cached = (token, Date().addingTimeInterval(TimeInterval(max(0, response.expires_in ?? 2_592_000))), apiKey, secret)
         return token
     }
 }

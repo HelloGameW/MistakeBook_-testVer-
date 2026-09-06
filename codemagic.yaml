@@ -11,66 +11,59 @@ workflows:
     scripts:
       - name: Show Xcode version
         script: |
-          xcodebuild -version
+          set -euo pipefail
+          mkdir -p "$CM_BUILD_DIR/build/logs"
+          xcodebuild -version | tee "$CM_BUILD_DIR/build/logs/xcode-version.log"
 
       - name: Show project schemes
         script: |
+          set -euo pipefail
           xcodebuild \
             -project "$CM_BUILD_DIR/MistakeBook.xcodeproj" \
             -list
 
       - name: Resolve Swift packages
         script: |
+          set -euo pipefail
           xcodebuild \
             -resolvePackageDependencies \
             -project "$CM_BUILD_DIR/MistakeBook.xcodeproj"
 
       - name: Build MistakeBook for iPhone
         script: |
+          set -euo pipefail
           xcodebuild build \
             -project "$CM_BUILD_DIR/MistakeBook.xcodeproj" \
             -scheme "MistakeBook" \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -configuration Debug \
+            -derivedDataPath "$CM_BUILD_DIR/build/device" \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee "$CM_BUILD_DIR/build/logs/iphone-build.log"
+
+      - name: Run regression tests on iPhone simulator
+        script: |
+          bash "$CM_BUILD_DIR/Scripts/ci-test.sh"
 
       - name: Package unsigned IPA
         script: |
-          APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" \
-            -path "*/Build/Products/Debug-iphoneos/MistakeBook.app" \
-            -print \
-            -quit)
-
-          if [ -z "$APP_PATH" ]; then
-            echo "MistakeBook.app not found."
-            exit 1
-          fi
-
-          echo "Found app:"
-          echo "$APP_PATH"
-
-          rm -rf "$CM_BUILD_DIR/UnsignedIPA"
-          mkdir -p "$CM_BUILD_DIR/UnsignedIPA/Payload"
-
-          cp -R \
-            "$APP_PATH" \
-            "$CM_BUILD_DIR/UnsignedIPA/Payload/MistakeBook.app"
-
-          cd "$CM_BUILD_DIR/UnsignedIPA"
-
-          /usr/bin/zip \
-            -qry \
-            "$CM_BUILD_DIR/MistakeBook-unsigned.ipa" \
-            Payload
-
-          echo "Created:"
+          set -euo pipefail
+          APP_PATH="$CM_BUILD_DIR/build/device/Build/Products/Debug-iphoneos/MistakeBook.app"
+          test -d "$APP_PATH"
+          PACKAGE_DIR=$(mktemp -d "$CM_BUILD_DIR/build/ipa.XXXXXX")
+          mkdir -p "$PACKAGE_DIR/Payload"
+          cp -R "$APP_PATH" "$PACKAGE_DIR/Payload/MistakeBook.app"
+          cd "$PACKAGE_DIR"
+          /usr/bin/zip -qry MistakeBook-unsigned.ipa Payload
+          mv MistakeBook-unsigned.ipa "$CM_BUILD_DIR/MistakeBook-unsigned.ipa"
           ls -lh "$CM_BUILD_DIR/MistakeBook-unsigned.ipa"
 
     artifacts:
       - $CM_BUILD_DIR/MistakeBook-unsigned.ipa
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug-iphoneos/*.app
-      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/Products/Debug-iphoneos/*.dSYM
-      - /tmp/xcodebuild_logs/*.log
+      - $CM_BUILD_DIR/build/device/Build/Products/Debug-iphoneos/*.app
+      - $CM_BUILD_DIR/build/device/Build/Products/Debug-iphoneos/*.dSYM
+      - $CM_BUILD_DIR/build/logs/*.log
+      - $CM_BUILD_DIR/build/*.xcresult

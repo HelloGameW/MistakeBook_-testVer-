@@ -11,7 +11,7 @@ import PreviewSupport
 
 final class FactoryCompileTests: XCTestCase {
     func testFrozenFactoryTypesAreVisible() {
-        XCTAssertEqual(ContractSchema.version, "1.0.0")
+        XCTAssertEqual(ContractSchema.version, "1.1.0")
     }
 }
 

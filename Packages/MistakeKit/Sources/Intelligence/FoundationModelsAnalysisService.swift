@@ -1,5 +1,8 @@
 import Foundation
 import Contracts
+#if canImport(FoundationModels)
+import FoundationModels
+#endif
 
 public enum FoundationModelsInstruction {
     /// Fixed safety boundary for the optional on-device model. Learning
@@ -49,6 +52,9 @@ public struct FoundationModelsAnalysisService: AnalysisService, Sendable {
             case .unavailable(_):
                 feature = FeatureCapability(feature: .enhancedAnalysis, subjectID: nil, state: .notReady,
                                             reason: "系统设备端语言模型尚未就绪或设备/地区不支持。", supportedLanguages: [])
+            @unknown default:
+                feature = FeatureCapability(feature: .enhancedAnalysis, subjectID: nil, state: .notReady,
+                                            reason: "系统返回了未知的模型状态，暂时使用基础规则。", supportedLanguages: [])
             }
             base = CapabilityReport(checkedAt: Date(), features: base.features.filter { $0.feature != .enhancedAnalysis } + [feature])
         }
@@ -66,11 +72,13 @@ public struct FoundationModelsAnalysisService: AnalysisService, Sendable {
                               referenceAnswerSource: result.referenceAnswerSource)
     }
 
-    private static func validated(_ result: AnalysisResult, snapshot: RecordContentSnapshot) throws -> AnalysisResult {
+    static func validated(_ result: AnalysisResult, snapshot: RecordContentSnapshot) throws -> AnalysisResult {
         guard result.inputContentRevision == snapshot.contentRevision,
+              (result.status == .hypotheses && !result.hypotheses.isEmpty)
+                || (result.status == .insufficientEvidence && result.hypotheses.isEmpty),
               result.hypotheses.count <= 8,
               result.hypotheses.allSatisfy({ hypothesis in
-                  hypothesis.summary.count <= 500 && hypothesis.reason.count <= 1000
+                  !hypothesis.evidence.isEmpty && hypothesis.summary.count <= 500 && hypothesis.reason.count <= 1000
                       && hypothesis.nextAction.count <= 500
                       && hypothesis.evidence.allSatisfy { evidence in
                           guard snapshot.sourceRegions.contains(where: { $0.id == evidence.regionID }) else { return false }
@@ -113,10 +121,17 @@ private enum FoundationModelsBridge {
     }
 
     static func analyze(snapshot: RecordContentSnapshot, options: AnalysisOptions) async throws -> AnalysisResult {
-        let session = LanguageModelSession()
-        let prompt = FoundationModelsInstruction.system + "\n严格只输出 JSON，不要 Markdown。\n" + Self.materialPrompt(snapshot)
+        guard options.timeoutSeconds.isFinite, options.timeoutSeconds > 0,
+              options.timeoutSeconds <= 3600 else { throw AppError(code: .invalidConfiguration) }
+        let prompt = Self.materialPrompt(snapshot)
         let responseText = try await withThrowingTaskGroup(of: String.self) { group in
             group.addTask {
+                let session = LanguageModelSession(instructions: FoundationModelsInstruction.system + """
+
+                严格只输出 JSON，不要 Markdown，结构如下：
+                {"status":"hypotheses或insufficientEvidence","hypotheses":[{"kind":"recognitionConcern或possibleSolutionError或referenceDifference或reading或knowledge或confusion或strategy或reasoning或procedure或expression","summary":"","reason":"","nextAction":"","certainty":"tentative或needsConfirmation","evidence":[{"regionID":"UUID","lineID":null,"quote":null,"evidenceSource":"student或reference或teacher"}]}],"limitations":[]}
+                hypotheses 状态必须提供非空候选及证据；insufficientEvidence 的 hypotheses 必须为空。
+                """)
                 let response = try await session.respond(to: prompt)
                 return response.content
             }
@@ -164,7 +179,7 @@ private enum FoundationModelsBridge {
         STUDENT_WORK: \(bounded(snapshot.studentWork.displayText))
         REFERENCE: \(bounded(snapshot.referenceAnswer?.displayText ?? ""))
         VALID_REGION_IDS: \(snapshot.sourceRegions.map { $0.id.uuidString }.joined(separator: ","))
-        VALID_LINE_IDS: \(snapshot.ocrLines.map { $0.id.uuidString }.joined(separator: ","))
+        OCR_LINES: \(bounded(snapshot.ocrLines.map { "LINE id=\($0.id.uuidString) region=\($0.regionID.uuidString) text=\($0.rawText)" }.joined(separator: "\n")))
         END_LEARNING_MATERIAL
         """
     }

@@ -58,7 +58,9 @@ public struct ModelAPIAnalysisService: AnalysisService, Sendable {
         case "insufficientEvidence": status = .insufficientEvidence
         default: throw AppError(code: .invalidModelOutput)
         }
-        guard envelope.hypotheses.count <= 8 else { throw AppError(code: .invalidModelOutput) }
+        guard envelope.hypotheses.count <= 8,
+              Set(snapshot.sourceRegions.map(\.id)).count == snapshot.sourceRegions.count,
+              Set(snapshot.ocrLines.map(\.id)).count == snapshot.ocrLines.count else { throw AppError(code: .invalidModelOutput) }
         let regions = Dictionary(uniqueKeysWithValues: snapshot.sourceRegions.map { ($0.id, $0) })
         let lines = Dictionary(uniqueKeysWithValues: snapshot.ocrLines.map { ($0.id, $0) })
         let hypotheses = try envelope.hypotheses.map { item -> Hypothesis in
@@ -67,11 +69,12 @@ public struct ModelAPIAnalysisService: AnalysisService, Sendable {
             let evidence = try item.evidence.map { value -> Evidence in
                 guard let regionID = UUID(uuidString: value.regionID), regions[regionID] != nil else { throw AppError(code: .invalidModelOutput) }
                 let lineID = value.lineID.flatMap(UUID.init(uuidString:))
+                guard value.lineID == nil || lineID != nil else { throw AppError(code: .invalidModelOutput) }
                 if let lineID {
                     guard let line = lines[lineID], line.regionID == regionID else { throw AppError(code: .invalidModelOutput) }
                     if let quote = value.quote, !quote.isEmpty, !line.rawText.contains(quote) { throw AppError(code: .invalidModelOutput) }
                 }
-                let source = EvidenceSource(rawValue: value.evidenceSource) ?? .student
+                guard let source = EvidenceSource(rawValue: value.evidenceSource) else { throw AppError(code: .invalidModelOutput) }
                 return Evidence(regionID: regionID, lineID: lineID, quote: value.quote, evidenceSource: source)
             }
             guard status != .hypotheses || !evidence.isEmpty else { throw AppError(code: .invalidModelOutput) }
@@ -80,10 +83,11 @@ public struct ModelAPIAnalysisService: AnalysisService, Sendable {
                               certainty: item.certainty == "tentative" ? .tentative : .needsConfirmation,
                               userDecision: .pending)
         }
-        return AnalysisResult(status: status, hypotheses: hypotheses, limitations: envelope.limitations ?? [],
+        let result = AnalysisResult(status: status, hypotheses: hypotheses, limitations: envelope.limitations ?? [],
                               engineID: "model-api.cause-analysis", engineVersion: model,
                               inputContentRevision: snapshot.contentRevision,
                               referenceAnswerSource: snapshot.referenceAnswerSource)
+        return try FoundationModelsAnalysisService.validated(result, snapshot: snapshot)
     }
 
     private static func prompt(snapshot: RecordContentSnapshot, language: String) -> String {

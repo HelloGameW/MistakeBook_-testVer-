@@ -98,8 +98,8 @@ public actor LocalAppService: AppService {
         let batch = ImportBatch(id: batchID, jobIDs: jobIDs, createdAt: now, updatedAt: Date(), cancelledAt: nil, warnings: warnings)
         do { try await repository.saveBatch(batch: batch) }
         catch {
-            let references = (try? await repository.referencedAssetIDs()) ?? []
-            try? await assets.cleanup(referencedAssetIDs: references)
+            // Do not globally collect assets during a failed write: another
+            // operation may have committed files but not their database references.
             throw error
         }
         await emitBatch(batchID: batchID)
@@ -220,8 +220,8 @@ public actor LocalAppService: AppService {
                 let saved = try await repository.commit(transaction: Self.recordTransaction(id: UUID(), write: RecordWrite(record: updated, expectedRecordRevision: current.recordRevision, expectedContentRevision: current.contentRevision, preserveConfirmedClassification: true))).records.first ?? updated
                 await emitRecord(kind: .upserted, record: saved); return RecordImageTransformResult(record: saved, transform: transformed)
             } catch {
-                let references = (try? await repository.referencedAssetIDs()) ?? []
-                try? await assets.cleanup(referencedAssetIDs: references)
+                // Leave unreferenced files for maintenance; global cleanup here
+                // can delete another in-flight operation's committed assets.
                 throw error
             }
         } catch {

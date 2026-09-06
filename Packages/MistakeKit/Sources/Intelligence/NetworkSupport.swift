@@ -14,7 +14,7 @@ enum NetworkSupport {
         let endpoint = configuration.endpointPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         components.path = "/" + [basePath, endpoint].filter { !$0.isEmpty }.joined(separator: "/")
         guard let url = components.url, !configuration.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              configuration.timeoutSeconds > 0 else { throw AppError(code: .invalidConfiguration) }
+              configuration.timeoutSeconds.isFinite, configuration.timeoutSeconds > 0 else { throw AppError(code: .invalidConfiguration) }
         return url
     }
 
@@ -47,7 +47,8 @@ enum NetworkSupport {
     static func formBody(_ values: [String: String]) -> Data {
         var components = URLComponents()
         components.queryItems = values.sorted(by: { $0.key < $1.key }).map { URLQueryItem(name: $0.key, value: $0.value) }
-        return Data((components.percentEncodedQuery ?? "").utf8)
+        // Form decoders interpret a literal plus as a space, corrupting base64 images.
+        return Data((components.percentEncodedQuery ?? "").replacingOccurrences(of: "+", with: "%2B").utf8)
     }
 }
 
@@ -138,7 +139,7 @@ struct OpenAICompatibleClient: Sendable {
         return json
     }
 
-    private static func extractJSONObject(from text: String) -> Data? {
+    static func extractJSONObject(from text: String) -> Data? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if let data = trimmed.data(using: .utf8), (try? JSONSerialization.jsonObject(with: data)) != nil {
             return data
@@ -149,6 +150,8 @@ struct OpenAICompatibleClient: Sendable {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let start = withoutFence.firstIndex(of: "{"),
               let end = withoutFence.lastIndex(of: "}"), start <= end else { return nil }
-        return String(withoutFence[start...]).data(using: .utf8)
+        let data = Data(withoutFence[start...end].utf8)
+        guard (try? JSONSerialization.jsonObject(with: data)) != nil else { return nil }
+        return data
     }
 }
