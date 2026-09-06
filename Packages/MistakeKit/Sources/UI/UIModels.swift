@@ -158,7 +158,7 @@ final class ArchivedRecordListViewModel: ObservableObject {
             do {
                 let query = RecordQuery(text: queryText, subjectID: nil, taxonomyNodeID: nil,
                                         includeDescendants: true, reviewStates: [], reviewRequiredOnly: false,
-                                        includeArchived: true, includeDeleted: false, sort: .updatedNewest)
+                                        includeDeleted: false, sort: .updatedNewest, includeArchived: true)
                 let page = try await service.list(query: query, page: PageRequest(cursor: nil, limit: 200))
                 guard !Task.isCancelled, let self else { return }
                 self.records = page.records.filter { $0.isArchived }

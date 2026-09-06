@@ -1,5 +1,6 @@
 #if os(iOS)
 import SwiftUI
+import UIKit
 import Contracts
 
 @MainActor
@@ -354,7 +355,9 @@ private struct SecretField: View {
 
     init(_ title: String, text: Binding<String>) {
         self.title = title
-        self.text = text
+        // Assigning a Binding to the wrapped property is a type error; the
+        // wrapper storage must be initialized through its underscored name.
+        self._text = text
     }
 
     var body: some View {

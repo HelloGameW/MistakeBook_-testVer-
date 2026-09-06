@@ -13,4 +13,4 @@ sh Scripts/bump-version.sh bugfix
 sh Scripts/bump-version.sh feature
 ```
 
-当前版本为 `0.2.6`，构建号为 `8`。上一轮修改为两处编译错误修复（FoundationModels `respond(to:)` 的 `Prompt` 类型适配、补齐 SettingsView 缺失的 `SecretField`），已按 bug 修复规则递增。
+当前版本为 `0.2.7`，构建号为 `9`。`0.2.6` 修复了两处编译错误（FoundationModels `respond(to:)` 的 `Prompt` 类型适配、补齐 SettingsView 缺失的 `SecretField`）；`0.2.7` 继续修复 UI 目标的两处编译错误（`SecretField` 初始化器改用 `_text` 赋值 Binding、`RecordQuery` 实参顺序改为 `includeDeleted` → `sort` → `includeArchived`，并补充 `import UIKit`）。
