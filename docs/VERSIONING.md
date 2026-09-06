@@ -13,4 +13,4 @@ sh Scripts/bump-version.sh bugfix
 sh Scripts/bump-version.sh feature
 ```
 
-当前版本为 `0.8.1`，构建号为 `28`。`0.8.1` 为修复版本：修复公告管理列表在 Xcode 26.6 下的 `ShapeStyle` 类型推断错误，继续包含模型选择统一、智谱 `glm-ocr`、跟随系统/浅色/深色配色、暗色与着色 App 图标，以及本机公告中心和管理入口。
+当前版本为 `0.8.2`，构建号为 `29`。`0.8.2` 为修复版本：修复公告管理列表在 Xcode 26.6 下的 `ShapeStyle` 类型推断错误，并修复外观模式在 SwiftUI `ForEach` 中缺少 `Hashable` 约束的问题；继续包含模型选择统一、智谱 `glm-ocr`、跟随系统/浅色/深色配色、暗色与着色 App 图标，以及本机公告中心和管理入口。
