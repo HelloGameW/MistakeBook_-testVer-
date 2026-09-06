@@ -13,4 +13,4 @@ sh Scripts/bump-version.sh bugfix
 sh Scripts/bump-version.sh feature
 ```
 
-当前版本为 `0.4.3`，构建号为 `18`。`0.4.3` 修复设置页 SwiftUI body 表达式超出类型检查时间预算的问题（CI 报 "the compiler is unable to type-check this expression in reasonable time"），已将巨型 body 拆分为七个独立的 Section 子视图属性。
+当前版本为 `0.5.0`，构建号为 `19`。`0.5.0` 应用错题量化体系：`课标量化体系/data` 的九科课标属性层（109 个考点）随包内置，`CurriculumQuantificationEngine` 按模型 W=Σwᵢfᵢ、I=100·W·F_repeat·F_error·F_target·F_prop、P=I·(1−掌握度)^γ·F_due 评估每道错题（六大维度映射见 docs/03 §6），`evaluateValue` 注入同考点重复次数/掌握度/复习时效等行为信号，未知考点自动回退原结果。

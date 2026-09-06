@@ -373,13 +373,48 @@ public actor LocalAppService: AppService {
         let result = try await intelligence.value.evaluate(snapshot: current.contentSnapshot,
             analysis: current.analysisResult, options: currentSettingsValue())
         guard result.inputContentRevision == expectedContentRevision else { throw AppError(code: .invalidModelOutput) }
+        // 课程量化：用课标属性层与行为信号（同考点重复次数/掌握度/复习时效）修正复习价值。
+        let quantified = await applyCurriculumQuantification(base: result, record: current)
+        guard quantified.inputContentRevision == expectedContentRevision else { throw AppError(code: .invalidModelOutput) }
         let updated = Self.record(current, recordRevision: current.recordRevision + 1,
-                                  mistakeValue: .some(result))
+                                  mistakeValue: .some(quantified))
         let saved = try await repository.commit(transaction: Self.recordTransaction(id: UUID(), write: RecordWrite(
             record: updated, expectedRecordRevision: current.recordRevision,
             expectedContentRevision: current.contentRevision, preserveConfirmedClassification: true))).records.first ?? updated
         await emitRecord(kind: .upserted, record: saved)
-        return result
+        return quantified
+    }
+
+    /// 课标量化体系应用：同考点出错次数 → F_repeat；复习状态 → 掌握度与到期因子。
+    private func applyCurriculumQuantification(base: MistakeValueResult, record: MistakeRecord) async -> MistakeValueResult {
+        guard let nodeID = record.classification.primaryNodeID, !nodeID.isEmpty else { return base }
+        let times = await repeatCount(ofNode: nodeID)
+        let mastery = Self.masteryValue(for: record.reviewState)
+        let due: CurriculumDueState = record.reviewState == .mastered ? .notDue : .firstPending
+        let kinds = record.analysisResult?.hypotheses.map(\.kind) ?? []
+        return await intelligence.curriculumQuantification.quantifiedResult(
+            base: base, nodeID: nodeID, hypothesisKinds: kinds, times: times, mastery: mastery, due: due) ?? base
+    }
+
+    /// 同一考点的累计错题数（含当前记录）。
+    private func repeatCount(ofNode nodeID: String) async -> Int {
+        var cursor: String? = nil
+        var count = 0
+        repeat {
+            guard let page = try? await repository.list(query: Self.allRecordsQuery,
+                                                        page: PageRequest(cursor: cursor, limit: 200)) else { return count }
+            count += page.records.filter { $0.classification.primaryNodeID == nodeID }.count
+            cursor = page.nextCursor
+        } while cursor != nil
+        return count
+    }
+
+    private static func masteryValue(for state: ReviewState) -> Double {
+        switch state {
+        case .new: 0
+        case .reviewing: 0.4
+        case .mastered: 1
+        }
     }
 
     public func setClassification(id: UUID, selection: ClassificationSelection) async throws -> MistakeRecord {

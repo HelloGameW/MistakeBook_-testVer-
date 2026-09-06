@@ -102,6 +102,16 @@
 			"path" = "Config/Shared.xcconfig";
 			"sourceTree" = "SOURCE_ROOT";
 		};
+		"BB5E7C0DE1C0FFE000000002" = {
+			"isa" = "PBXFileReference";
+			"lastKnownFileType" = "folder.assetcatalog";
+			"path" = "MistakeBook/Assets.xcassets";
+			"sourceTree" = "SOURCE_ROOT";
+		};
+		"AA5E7C0DE1C0FFE000000001" = {
+			"isa" = "PBXBuildFile";
+			"fileRef" = "BB5E7C0DE1C0FFE000000002";
+		};
 		"463C71872957947F1D795593" = {
 			"isa" = "PBXFileReference";
 			"lastKnownFileType" = "sourcecode.swift";
@@ -274,6 +284,7 @@
 			"files" = (
 				"B5055A10E91EDD5EB09442A3",
 				"A543555E7C286EFCAA5FFAD8",
+				"AA5E7C0DE1C0FFE000000001",
 			);
 			"runOnlyForDeploymentPostprocessing" = "0";
 		};
@@ -419,6 +430,7 @@
 				"PRODUCT_NAME" = "$(TARGET_NAME)";
 				"PRODUCT_BUNDLE_IDENTIFIER" = "local.mistakebook.app";
 				"INFOPLIST_FILE" = "MistakeBook/Info.plist";
+				"ASSETCATALOG_COMPILER_APPICON_NAME" = AppIcon;
 				"GENERATE_INFOPLIST_FILE" = "NO";
 				"LD_RUNPATH_SEARCH_PATHS" = (
 					"$(inherited)",
@@ -440,6 +452,7 @@
 				"PRODUCT_NAME" = "$(TARGET_NAME)";
 				"PRODUCT_BUNDLE_IDENTIFIER" = "local.mistakebook.app";
 				"INFOPLIST_FILE" = "MistakeBook/Info.plist";
+				"ASSETCATALOG_COMPILER_APPICON_NAME" = AppIcon;
 				"GENERATE_INFOPLIST_FILE" = "NO";
 				"LD_RUNPATH_SEARCH_PATHS" = (
 					"$(inherited)",
@@ -597,6 +610,7 @@
 				"A4CC6BC01A927E2A78FD3BEC",
 				"49A8ED7C48E45D451BEA1754",
 				"B79606FB3AFEA5BD1609ED40",
+				"BB5E7C0DE1C0FFE000000002",
 				"C42CCA647E6B1246571FCC75",
 				"2BDE7F1B69954D0EBD574281",
 				"F3B460B74925137D68C14337",

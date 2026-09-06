@@ -17,7 +17,9 @@ let package = Package(
     dependencies: [],
     targets: [
         .target(name: "Contracts"),
-        .target(name: "Intelligence", dependencies: ["Contracts"]),
+        .target(name: "Intelligence", dependencies: ["Contracts"], resources: [
+            .copy("CurriculumQuantification")
+        ]),
         .target(name: "Storage", dependencies: ["Contracts"]),
         .target(name: "Workflow", dependencies: ["Contracts"]),
         .target(name: "UI", dependencies: ["Contracts"]),

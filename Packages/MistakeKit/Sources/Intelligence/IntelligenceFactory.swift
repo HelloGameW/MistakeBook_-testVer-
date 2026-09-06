@@ -18,9 +18,11 @@ public enum IntelligenceFactory {
 
         let value = RoutingMistakeValueService(model: ModelAPIMistakeValueService(credentialStore: credentialStore))
         let capabilities = CompositeCapabilityProvider(ocr: ocr, analysis: analysis, credentialStore: credentialStore)
+        let curriculum = CurriculumQuantificationEngine().map { $0 as any CurriculumQuantificationService } ?? NoCurriculumQuantification()
         return IntelligenceServices(ocr: ocr, segmentation: HeuristicSegmentationService(), analysis: analysis,
                                      value: value, classification: KeywordClassificationService(), capabilities: capabilities,
-                                     gradingMarkDetection: GradingMarkHeuristicsDetector())
+                                     gradingMarkDetection: GradingMarkHeuristicsDetector(),
+                                     curriculumQuantification: curriculum)
     }
 
     public static func makeTaxonomySeedProvider(resourceURL: URL) throws -> any TaxonomySeedProvider {

@@ -59,6 +59,29 @@ public protocol TaxonomySeedProvider: Sendable {
     func loadSeed() async throws -> TaxonomySeed
 }
 
+/// 复习时效状态（对接课标量化模型的 F_due 因子）。
+public enum CurriculumDueState: String, Sendable, Equatable, CaseIterable {
+    case firstPending
+    case overdueShort
+    case overdueLong
+    case notDue
+    case unplanned
+}
+
+/// 课标量化体系：用知识点的课标属性层与行为信号修正复习价值。
+/// nodeID 未知的考点（属性层未覆盖）返回 nil，调用方保留 base 结果。
+public protocol CurriculumQuantificationService: Sendable {
+    func quantifiedResult(base: MistakeValueResult, nodeID: String?, hypothesisKinds: [HypothesisKind],
+                          times: Int, mastery: Double, due: CurriculumDueState) async -> MistakeValueResult?
+}
+
+/// 无属性层时的默认实现：恒返回 nil，价值评估保持原样。
+public struct NoCurriculumQuantification: CurriculumQuantificationService {
+    public init() {}
+    public func quantifiedResult(base: MistakeValueResult, nodeID: String?, hypothesisKinds: [HypothesisKind],
+                                 times: Int, mastery: Double, due: CurriculumDueState) async -> MistakeValueResult? { nil }
+}
+
 /// Heuristic grading-mark detection: true when the question image shows red-pen
 /// strokes (老师批改痕迹), suggesting the question was marked wrong.
 public protocol GradingMarkDetectionService: Sendable {

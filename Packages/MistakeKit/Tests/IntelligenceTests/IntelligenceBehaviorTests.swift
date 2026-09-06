@@ -141,4 +141,28 @@ final class IntelligenceBehaviorTests: XCTestCase {
                        "marks outside the focused region must be ignored")
     }
 
+    func testCurriculumQuantificationScoresKnownNodeAndFallsBackOnUnknown() async throws {
+        let engine = try XCTUnwrap(CurriculumQuantificationEngine())
+        let base = LocalHeuristicMistakeValueService.result(
+            dimensions: MistakeValueDimensions(knowledgeValue: 0.5, representativeness: 0.6, recurrenceRisk: 0.4,
+                                               reasoningValue: 0.5, examValue: 0.5, reviewPriority: 0.5),
+            reason: "基础估算", engineID: "test", engineVersion: "1", revision: 3)
+        // math/analytic/conics：选择性必修（高考 scope=0.9）、examWeightPrior=0.09
+        let quantified = await engine.quantifiedResult(base: base, nodeID: "math/analytic/conics",
+                                                       hypothesisKinds: [.knowledge], times: 2, mastery: 0.2, due: .firstPending)
+        let result = try XCTUnwrap(quantified)
+        XCTAssertEqual(result.examValue, 0.09 * 0.5 + 0.9 * 0.5, accuracy: 0.001)
+        XCTAssertGreaterThan(result.knowledgeValue, 0)
+        XCTAssertLessThanOrEqual(result.knowledgeValue, 1)
+        XCTAssertGreaterThan(result.reviewPriority, 0)
+        XCTAssertLessThanOrEqual(result.reviewPriority, 1)
+        XCTAssertEqual(result.inputContentRevision, 3)
+        XCTAssertEqual(result.engineID, "curriculum.quantification")
+        XCTAssertTrue(result.reason.contains("静态重要度"))
+        // 未知考点：保留 base 结果
+        let fallback = await engine.quantifiedResult(base: base, nodeID: "no-such/node",
+                                                     hypothesisKinds: [.knowledge], times: 1, mastery: 0, due: .firstPending)
+        XCTAssertNil(fallback)
+    }
+
 }
