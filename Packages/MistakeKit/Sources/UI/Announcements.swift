@@ -152,7 +152,7 @@ final class AnnouncementStore: ObservableObject {
     }
 
     private static func initialAnnouncement() -> Announcement {
-        Announcement(title: "MistakeBook 0.8.0 已更新",
+        Announcement(title: "MistakeBook 0.8.1 已更新",
                      message: "模型选择已统一归入“模型选择”页面，图像识别默认使用智谱 glm-ocr；新增跟随系统、浅色和深色配色，以及暗色/着色 App 图标。你也可以在设置中管理本机公告。")
     }
 }

@@ -2,9 +2,9 @@
 
 ## 结论
 
-当前 `MistakeBook_Beta` 0.8.0（build 27）不直接接入成就 UI 或生产装配。成就功能已整理为独立的 `Packages/AchievementsKit` Swift Package，主工程当前不引用该目录，现有完成版本的行为、持久化模型和契约保持不变。
+当前 `MistakeBook_Beta` 0.8.1（build 28）不直接接入成就 UI 或生产装配。成就功能已整理为独立的 `Packages/AchievementsKit` Swift Package，主工程当前不引用该目录，现有完成版本的行为、持久化模型和契约保持不变。
 
-这是有意的接入闸门：主工程的 `AppService` 没有成就契约，也没有独立的“复习会话”事件；直接修改 `Contracts`、`LocalAppService`、SwiftData schema 或根 Tab 会扩大回归面。因此本版本只交付可编译验收的业务模块和接线协议，暂不把它视为 0.8.0 的产品功能。
+这是有意的接入闸门：主工程的 `AppService` 没有成就契约，也没有独立的“复习会话”事件；直接修改 `Contracts`、`LocalAppService`、SwiftData schema 或根 Tab 会扩大回归面。因此本版本只交付可编译验收的业务模块和接线协议，暂不把它视为 0.8.1 的产品功能。
 
 ## 模块边界
 
