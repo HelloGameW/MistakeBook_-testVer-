@@ -13,4 +13,4 @@ sh Scripts/bump-version.sh bugfix
 sh Scripts/bump-version.sh feature
 ```
 
-当前版本为 `0.6.1`，构建号为 `25`。`0.6.1` 修复 `credentialTitle` 的 switch 漏掉新增的 `glmAPIKey` case 导致的 switch must be exhaustive 编译错误；已全仓库排查 `OCRProviderKind`/`CredentialKind` 的全部 switch 均已穷尽。
+当前版本为 `0.7.0`，构建号为 `26`。`0.7.0` 为功能版本：智谱 GLM 升级为全功能服务商——错因分析与复习价值可选用 GLM 对话模型（BigModel OpenAI 兼容端点 /chat/completions），GLM 密钥验证的探针图改为真实渲染图（修复 1×1 探针导致的 400），各服务商提供常用模型预设下拉（ChatGPT：gpt-6 astra / gpt-5.6 sol / luna / terra），手动输入保留。

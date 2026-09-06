@@ -26,6 +26,7 @@ struct SettingsView: View {
     // Secret fields are never populated from Keychain.
     @State private var baiduAPIKey = ""
     @State private var glmAPIKey = ""
+    @State private var glmChatModel = "glm-4.7"
     @State private var baiduSecretKey = ""
 
     @State private var ocrChoice: OCRChoice = .appleVision
@@ -111,15 +112,16 @@ struct SettingsView: View {
     private var providerSection: some View {
         Section {
             NavigationLink {
-                ProviderDetailView(title: "DeepSeek", showsModelPresets: true, keyKind: .deepSeek,
-                                   profile: $deepSeek,
+                ProviderDetailView(title: "DeepSeek", modelPresets: ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"],
+                                   keyKind: .deepSeek, profile: $deepSeek,
                                    keyConfigured: credentialStatus.contains(.ocrModelAPIKey) || credentialStatus.contains(.analysisModelAPIKey) || credentialStatus.contains(.mistakeValueModelAPIKey))
             } label: {
                 providerRow("DeepSeek", detail: apiStatus(filled: !deepSeek.apiKey.isEmpty || credentialStatus.contains(.ocrModelAPIKey) || credentialStatus.contains(.analysisModelAPIKey) || credentialStatus.contains(.mistakeValueModelAPIKey)))
             }
             NavigationLink {
-                ProviderDetailView(title: "ChatGPT / OpenAI 兼容", showsModelPresets: false, keyKind: .openAICompatible,
-                                   profile: $openAICompatible,
+                ProviderDetailView(title: "ChatGPT / OpenAI 兼容",
+                                   modelPresets: ["gpt-6 astra", "gpt-5.6 sol", "luna", "terra"],
+                                   keyKind: .openAICompatible, profile: $openAICompatible,
                                    keyConfigured: credentialStatus.contains(.ocrModelAPIKey) || credentialStatus.contains(.analysisModelAPIKey) || credentialStatus.contains(.mistakeValueModelAPIKey))
             } label: {
                 providerRow("ChatGPT / OpenAI 兼容", detail: apiStatus(filled: !openAICompatible.apiKey.isEmpty || credentialStatus.contains(.ocrModelAPIKey) || credentialStatus.contains(.analysisModelAPIKey) || credentialStatus.contains(.mistakeValueModelAPIKey)))
@@ -133,7 +135,8 @@ struct SettingsView: View {
                 providerRow("百度教育", detail: credentialStatus.contains(.baiduAPIKey) ? "已配置" : "未填写密钥")
             }
             NavigationLink {
-                GLMProviderView(apiKey: $glmAPIKey, keySaved: credentialStatus.contains(.glmAPIKey))
+                GLMProviderView(apiKey: $glmAPIKey, chatModel: $glmChatModel,
+                                keySaved: credentialStatus.contains(.glmAPIKey))
             } label: {
                 providerRow("智谱 GLM", detail: glmAPIKey.isEmpty ? (credentialStatus.contains(.glmAPIKey) ? "已填入 API" : "未填入 API") : "已填入 API")
             }
@@ -175,6 +178,7 @@ struct SettingsView: View {
                     Text("Apple 智能").tag(AnalysisChoice.appleIntelligence)
                     Text("DeepSeek").tag(AnalysisChoice.deepSeek)
                     Text("ChatGPT").tag(AnalysisChoice.openAICompatible)
+                    Text("智谱 GLM").tag(AnalysisChoice.glm)
                 }
                 .labelsHidden()
             }
@@ -183,6 +187,7 @@ struct SettingsView: View {
                     Text("本地评估").tag(ValueChoice.local)
                     Text("DeepSeek").tag(ValueChoice.deepSeek)
                     Text("ChatGPT").tag(ValueChoice.openAICompatible)
+                    Text("智谱 GLM").tag(ValueChoice.glm)
                 }
                 .labelsHidden()
             }
@@ -250,7 +255,7 @@ struct SettingsView: View {
 
     private var currentSnapshot: SettingsSnapshot {
         SettingsSnapshot(processingMode: processingMode, languageText: languageText, appleEnhanced: appleEnhanced,
-                         deepSeek: deepSeek, openAICompatible: openAICompatible,
+                         deepSeek: deepSeek, openAICompatible: openAICompatible, glmChatModel: glmChatModel,
                          baiduStrategy: baiduStrategy, baiduFormula: baiduFormula, baiduLayout: baiduLayout, baiduMixed: baiduMixed,
                          ocrChoice: ocrChoice, analysisChoice: analysisChoice, valueChoice: valueChoice)
     }
@@ -271,9 +276,9 @@ struct SettingsView: View {
                 languageText = s.recognitionLanguages.joined(separator: ", ")
                 appleEnhanced = s.enhancedAnalysisEnabled
                 processingMode = s.resolvedProcessingMode
-                apply(s.ocrModelAPI, to: &deepSeek, and: &openAICompatible)
-                apply(s.analysisModelAPI, to: &deepSeek, and: &openAICompatible)
-                apply(s.mistakeValueModelAPI, to: &deepSeek, and: &openAICompatible)
+                apply(s.ocrModelAPI)
+                apply(s.analysisModelAPI)
+                apply(s.mistakeValueModelAPI)
                 ocrChoice = ocrChoice(from: s)
                 analysisChoice = analysisChoice(from: s)
                 valueChoice = valueChoice(from: s)
@@ -311,17 +316,28 @@ struct SettingsView: View {
         }
     }
 
-    /// Routes a stored role config into the DeepSeek or OpenAI-compatible profile
-    /// by host, so provider pages always show what the roles currently use.
-    private func apply(_ config: ModelAPIConfiguration?, to deepSeek: inout ProviderProfile, and openAI: inout ProviderProfile) {
+    /// Routes a stored role config into the matching provider profile by host,
+    /// so provider pages always show what the roles currently use.
+    private func apply(_ config: ModelAPIConfiguration?) {
         guard let config else { return }
+        let host = URL(string: config.baseURL)?.host?.lowercased() ?? ""
         if config.isDeepSeek {
             deepSeek.baseURL = config.baseURL; deepSeek.endpoint = config.endpointPath
             deepSeek.model = config.model; deepSeek.timeoutSeconds = config.timeoutSeconds
+        } else if host.contains("bigmodel") {
+            glmChatModel = config.model
         } else {
-            openAI.baseURL = config.baseURL; openAI.endpoint = config.endpointPath
-            openAI.model = config.model; openAI.timeoutSeconds = config.timeoutSeconds
+            openAICompatible.baseURL = config.baseURL; openAICompatible.endpoint = config.endpointPath
+            openAICompatible.model = config.model; openAICompatible.timeoutSeconds = config.timeoutSeconds
         }
+    }
+
+    /// GLM 对话（错因分析/复习价值）共用配置：固定的 BigModel 兼容端点。
+    private func glmChatConfiguration() -> ModelAPIConfiguration {
+        ModelAPIConfiguration(baseURL: "https://open.bigmodel.cn/api/paas/v4",
+                              endpointPath: "/chat/completions",
+                              model: glmChatModel.trimmingCharacters(in: .whitespacesAndNewlines),
+                              timeoutSeconds: 60)
     }
 
     private func save() { Task { await saveAndClose(close: false) } }
@@ -348,6 +364,7 @@ struct SettingsView: View {
         case .appleIntelligence: analysisProvider = appleEnhanced ? .appleFoundationModels : .localRules; analysisModelAPI = nil
         case .deepSeek: analysisProvider = .modelAPI; analysisModelAPI = deepSeek.configuration()
         case .openAICompatible: analysisProvider = .modelAPI; analysisModelAPI = openAICompatible.configuration()
+        case .glm: analysisProvider = .modelAPI; analysisModelAPI = glmChatConfiguration()
         }
         let valueModelAPI: ModelAPIConfiguration?
         var valueProvider: MistakeValueProviderKind
@@ -355,6 +372,7 @@ struct SettingsView: View {
         case .local: valueProvider = .localHeuristic; valueModelAPI = nil
         case .deepSeek: valueProvider = .modelAPI; valueModelAPI = deepSeek.configuration()
         case .openAICompatible: valueProvider = .modelAPI; valueModelAPI = openAICompatible.configuration()
+        case .glm: valueProvider = .modelAPI; valueModelAPI = glmChatConfiguration()
         }
         let next = AppSettings(recognitionLanguages: languages.isEmpty ? ["zh-Hans"] : languages,
             enhancedAnalysisEnabled: appleEnhanced, autoArchivePolicy: AutoArchivePolicy(version: "suggestions-only", enabledRules: []),
@@ -399,11 +417,13 @@ struct SettingsView: View {
         switch analysisChoice {
         case .deepSeek: entries.append((.analysisModelAPIKey, deepSeek.apiKey))
         case .openAICompatible: entries.append((.analysisModelAPIKey, openAICompatible.apiKey))
+        case .glm: entries.append((.analysisModelAPIKey, glmAPIKey))
         default: break
         }
         switch valueChoice {
         case .deepSeek: entries.append((.mistakeValueModelAPIKey, deepSeek.apiKey))
         case .openAICompatible: entries.append((.mistakeValueModelAPIKey, openAICompatible.apiKey))
+        case .glm: entries.append((.mistakeValueModelAPIKey, glmAPIKey))
         case .local: break
         }
         return entries
@@ -424,14 +444,16 @@ struct SettingsView: View {
         }
         switch analysisChoice {
         case .deepSeek where deepSeek.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-             .openAICompatible where openAICompatible.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
+             .openAICompatible where openAICompatible.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+             .glm where glmChatModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
             errorMessage = "错因分析选择的联网服务商还没有填写模型名称，请进入该服务商页面填写。"
             return false
         default: break
         }
         switch valueChoice {
         case .deepSeek where deepSeek.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-             .openAICompatible where openAICompatible.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
+             .openAICompatible where openAICompatible.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+             .glm where glmChatModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
             errorMessage = "复习价值选择的联网服务商还没有填写模型名称，请进入该服务商页面填写。"
             return false
         default: break
@@ -504,8 +526,8 @@ private struct ProviderProfile: Equatable {
 }
 
 private enum OCRChoice: Hashable { case appleVision, deepSeek, openAICompatible, glm, baiduEducation }
-private enum AnalysisChoice: Hashable { case localRules, appleIntelligence, deepSeek, openAICompatible }
-private enum ValueChoice: Hashable { case local, deepSeek, openAICompatible }
+private enum AnalysisChoice: Hashable { case localRules, appleIntelligence, deepSeek, openAICompatible, glm }
+private enum ValueChoice: Hashable { case local, deepSeek, openAICompatible, glm }
 
 /// 服务商密钥验证的目标端点。
 private enum KeyProviderKind: Hashable { case deepSeek, openAICompatible, glm, baiduEducation }
@@ -516,6 +538,7 @@ private struct SettingsSnapshot: Equatable {
     var appleEnhanced: Bool
     var deepSeek: ProviderProfile
     var openAICompatible: ProviderProfile
+    var glmChatModel: String
     var baiduStrategy: BaiduEducationStrategy
     var baiduFormula: Bool
     var baiduLayout: Bool
@@ -529,7 +552,7 @@ private struct SettingsSnapshot: Equatable {
 /// endpoint settings live together here, plus key verification.
 private struct ProviderDetailView: View {
     let title: String
-    let showsModelPresets: Bool
+    let modelPresets: [String]
     let keyKind: KeyProviderKind
     @Binding var profile: ProviderProfile
     let keyConfigured: Bool
@@ -564,10 +587,11 @@ private struct ProviderDetailView: View {
                 TextField("模型名称", text: $profile.model)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                if showsModelPresets {
+                if !modelPresets.isEmpty {
                     Menu("选择常用模型") {
-                        Button("文字模型 deepseek-v4-flash") { profile.model = "deepseek-v4-flash" }
-                        Button("视觉模型 deepseek-v4-flash-vision-exp") { profile.model = "deepseek-v4-flash-vision-exp" }
+                        ForEach(modelPresets, id: \.self) { preset in
+                            Button(preset) { profile.model = preset }
+                        }
                     }
                 }
             } header: {
@@ -642,14 +666,24 @@ private enum ProviderKeyVerifier {
     }
 
     private static func glmCheck(key: String) async -> (Bool, String) {
-        guard let url = URL(string: "https://open.bigmodel.cn/api/paas/v4/files/ocr"),
-              let probe = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==") else {
+        guard let url = URL(string: "https://open.bigmodel.cn/api/paas/v4/files/ocr") else {
             return (false, "内部错误")
         }
+        // 1×1 探针图会被 OCR 服务以 400 拒绝，必须上传真实可识别的小图。
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let probeImage = UIGraphicsImageRenderer(size: CGSize(width: 96, height: 96), format: format).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 96, height: 96))
+            UIColor.black.setFill()
+            context.fill(CGRect(x: 24, y: 36, width: 48, height: 6))
+            context.fill(CGRect(x: 24, y: 56, width: 36, height: 6))
+        }
+        guard let probe = probeImage.pngData() else { return (false, "内部错误") }
         let boundary = "mistakebook.verify.\(UUID().uuidString)"
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 20
+        request.timeoutInterval = 30
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
         var body = Data()
@@ -695,9 +729,10 @@ private enum ProviderKeyVerifier {
     }
 }
 
-/// 智谱 GLM OCR 服务商页：密钥填写 + 可用性验证。
+/// 智谱 GLM 服务商页：OCR 与对话共用密钥；对话模型用于错因分析与复习价值。
 private struct GLMProviderView: View {
     @Binding var apiKey: String
+    @Binding var chatModel: String
     let keySaved: Bool
 
     @State private var verification: (passed: Bool, message: String)?
@@ -730,6 +765,19 @@ private struct GLMProviderView: View {
                 }
             } footer: {
                 Text("密钥仅存储于本机钥匙串，保存后不再显示；留空表示不修改。密钥可在智谱开放平台控制台获取。")
+            }
+            Section {
+                TextField("对话模型名称", text: $chatModel)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                Menu("选择常用模型") {
+                    Button("glm-4.7") { chatModel = "glm-4.7" }
+                    Button("glm-4.6") { chatModel = "glm-4.6" }
+                }
+            } header: {
+                Text("对话模型")
+            } footer: {
+                Text("用于错因分析与复习价值评估。")
             }
         }
         .navigationTitle("智谱 GLM")
