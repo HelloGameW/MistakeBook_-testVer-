@@ -371,11 +371,12 @@ final class RecordDetailViewModel: ObservableObject {
                 guard let self else { return }
                 self.record = updated
                 self.actionMessage = "分析完成；请依据证据确认候选。"
+                self.isAnalyzing = false
             } catch {
                 guard let self else { return }
                 self.errorMessage = UIErrorMessage.from(error)
+                self.isAnalyzing = false
             }
-            isAnalyzing = false
         }
     }
 
