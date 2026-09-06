@@ -27,51 +27,54 @@ struct RecordDetailView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                if model.isLoading && model.record == nil {
-                    ProgressView("正在载入错题…")
-                        .frame(maxWidth: .infinity, minHeight: 240)
-                } else if let record = model.record {
-                    VStack(alignment: .leading, spacing: 20) {
-                        if let errorMessage = model.errorMessage { ErrorBanner(message: errorMessage) }
-                        if let actionMessage = model.actionMessage { NoticeBanner(message: actionMessage) }
-                        sourceSection(record)
-                        editorSection(record)
-                        analysisSection(record)
-                        MistakeValueSection(service: service, record: record) { updated in
-                            model.record = updated
-                            model.actionMessage = "重要度已保存，可在题目列表中直接查看。"
-                        }
-                        classificationSection(record)
-                        reviewSection(record)
-                    }
-                    .padding()
-                } else if let errorMessage = model.errorMessage {
-                    ErrorBanner(message: errorMessage)
-                        .padding()
-                }
-            }
-            .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("错题详情")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button("刷新") { model.reload() }
-                        .accessibilityLabel("刷新错题详情")
-                }
-            }
-            .onChange(of: model.record?.recordRevision) { _, _ in seedEditorIfNeeded() }
-            .onAppear { seedEditorIfNeeded() }
-            .sheet(isPresented: $showingRegionEditor) {
-                if let record = model.record {
-                    RegionAdjustmentSheet(service: service, record: record, image: model.image) { updated in
+        // This view is pushed onto the list's NavigationStack; it must not own a
+        // nested stack, which breaks push presentation on iOS 26.
+        ScrollView {
+            if model.isLoading && model.record == nil {
+                ProgressView("正在载入错题…")
+                    .frame(maxWidth: .infinity, minHeight: 240)
+            } else if let record = model.record {
+                VStack(alignment: .leading, spacing: 20) {
+                    if let errorMessage = model.errorMessage { ErrorBanner(message: errorMessage) }
+                    if let actionMessage = model.actionMessage { NoticeBanner(message: actionMessage) }
+                    sourceSection(record)
+                    editorSection(record)
+                    analysisSection(record)
+                    MistakeValueSection(service: service, record: record) { updated in
                         model.record = updated
-                        model.actionMessage = "分题区域已保存，相关旧分析需重新确认。"
+                        model.actionMessage = "重要度已保存，可在题目列表中直接查看。"
                     }
+                    classificationSection(record)
+                    reviewSection(record)
+                }
+                .padding()
+            } else if let errorMessage = model.errorMessage {
+                ErrorBanner(message: errorMessage)
+                    .padding()
+            } else {
+                NoticeBanner(message: "题目暂时无法显示，请返回列表后重试。")
+                    .padding()
+            }
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("错题详情")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("关闭") { dismiss() }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button("刷新") { model.reload() }
+                    .accessibilityLabel("刷新错题详情")
+            }
+        }
+        .onChange(of: model.record?.recordRevision) { _, _ in seedEditorIfNeeded() }
+        .onAppear { seedEditorIfNeeded() }
+        .sheet(isPresented: $showingRegionEditor) {
+            if let record = model.record {
+                RegionAdjustmentSheet(service: service, record: record, image: model.image) { updated in
+                    model.record = updated
+                    model.actionMessage = "分题区域已保存，相关旧分析需重新确认。"
                 }
             }
         }

@@ -13,4 +13,4 @@ sh Scripts/bump-version.sh bugfix
 sh Scripts/bump-version.sh feature
 ```
 
-当前版本为 `0.2.10`，构建号为 `12`。`0.2.6`–`0.2.9` 依次修复了编译错误与模拟器架构切片问题；`0.2.10` 修复回归测试首次运行暴露的三处产品缺陷：`StoredRecordEntity.isDeleted` 与 SwiftData `PersistentModel.isDeleted` 语义冲突导致软删除不持久（重命名为 `isSoftDeleted`）；令牌存储负载经秒级 ISO8601 往返后严格相等比较必然失败（改为字段级比较）；Workflow 测试改用不依赖模拟器 Keychain 的凭据存储，并修正分段测试的表格 fixture 几何。
+当前版本为 `0.3.0`，构建号为 `13`。`0.2.6`–`0.2.10` 依次修复了编译错误、模拟器架构切片与回归测试暴露的产品缺陷；`0.3.0` 新增功能：错题内容双模式——导入时可选择转文字（OCR）或转图片（基于题号自动截取每道题的区域图片，识别文字仍保留用于搜索，详情页支持手动框取调整区域），并修复点击题目后详情页空白闪退（移除被推入视图中嵌套的 NavigationStack）。

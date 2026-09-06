@@ -105,13 +105,24 @@ public struct BatchEvent: Codable, Sendable, Equatable {
     }
 }
 
+/// Content mode for records produced by an import. `.text` keeps OCR text as
+/// the primary content; `.image` crops each question region from the working
+/// image (by segmentation/题号) and references the cropped asset as evidence.
+public enum ImportedRecordMode: String, Codable, Sendable, Equatable, CaseIterable {
+    case text
+    case image
+}
+
 public struct ImportOptions: Codable, Sendable, Equatable {
     public let duplicatePolicy: DuplicatePolicy
     public let recognition: RecognitionOptions
+    /// nil behaves as .text; payloads persisted before 1.1 decode without this key.
+    public let recordMode: ImportedRecordMode?
 
-    public init(duplicatePolicy: DuplicatePolicy, recognition: RecognitionOptions) {
+    public init(duplicatePolicy: DuplicatePolicy, recognition: RecognitionOptions, recordMode: ImportedRecordMode? = nil) {
         self.duplicatePolicy = duplicatePolicy
         self.recognition = recognition
+        self.recordMode = recordMode
     }
 }
 

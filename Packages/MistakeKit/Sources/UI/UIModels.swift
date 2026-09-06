@@ -222,7 +222,7 @@ final class ImportFlowViewModel: ObservableObject {
         observationTask?.cancel()
     }
 
-    func importPages(_ pages: [ImportedPage]) {
+    func importPages(_ pages: [ImportedPage], recordMode: ImportedRecordMode) {
         guard !pages.isEmpty else { return }
         isImporting = true
         errorMessage = nil
@@ -230,7 +230,8 @@ final class ImportFlowViewModel: ObservableObject {
         let options = ImportOptions(
             duplicatePolicy: .skipExisting,
             recognition: RecognitionOptions(languages: ["zh-Hans", "en-US"], quality: .accurate,
-                                            usesLanguageCorrection: true, maxPixelDimension: 4096))
+                                            usesLanguageCorrection: true, maxPixelDimension: 4096),
+            recordMode: recordMode)
         Task { [weak self, service = self.service] in
             do {
                 let newBatchID = try await service.importPages(pages: pages, options: options)

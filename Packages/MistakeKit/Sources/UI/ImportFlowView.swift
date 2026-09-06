@@ -14,6 +14,7 @@ struct ImportFlowView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: ImportFlowViewModel
     @State private var mode: InputMode = .images
+    @State private var recordMode: ImportedRecordMode = .text
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showingFileImporter = false
     @State private var showingCamera = false
@@ -134,11 +135,27 @@ struct ImportFlowView: View {
                 Label("从文件选择图片", systemImage: "folder")
             }
 
-            Text("最多一次整理 20 张图片。原图会保留；系统增强模型不可用时仍可使用基础识别和手动校正。")
+            Picker("错题内容", selection: $recordMode) {
+                Text("转文字").tag(ImportedRecordMode.text)
+                Text("转图片").tag(ImportedRecordMode.image)
+            }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("错题内容模式")
+
+            Text(recordModeExplanation)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         } header: {
             Text("图片来源")
+        }
+    }
+
+    private var recordModeExplanation: String {
+        switch recordMode {
+        case .text:
+            return "识别文字作为题目内容，可编辑与检索。"
+        case .image:
+            return "按题号自动截取每道题的图片作为题目内容；识别文字仍会保留用于搜索，之后可在详情页手动框取调整区域。"
         }
     }
 
@@ -328,7 +345,7 @@ struct ImportFlowView: View {
             permissionMessage = "没有读到可处理的图片；可以重试或改用手动录入。"
             return
         }
-        model.importPages(pages)
+        model.importPages(pages, recordMode: recordMode)
         onChanged()
     }
 

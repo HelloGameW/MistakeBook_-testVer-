@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 import Contracts
 import Storage
 import Workflow
@@ -53,7 +54,41 @@ final class WorkflowBehaviorTests: XCTestCase {
         } catch let error as AppError { XCTAssertEqual(error.code, .invalidConfirmation) }
     }
 
-    private func makeService() async throws -> any AppService {
+    func testImageModeCropsQuestionRegionImages() async throws {
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 400, height: 600)).image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 400, height: 600))
+        }
+        let assetID = UUID()
+        let topRegion = SourceRegion(id: UUID(), assetID: assetID, normalizedRect: try NormalizedRect(x: 0, y: 0, width: 1, height: 0.5), purpose: .stem, isUserConfirmed: false)
+        let bottomRegion = SourceRegion(id: UUID(), assetID: assetID, normalizedRect: try NormalizedRect(x: 0, y: 0.5, width: 1, height: 0.5), purpose: .stem, isUserConfirmed: false)
+        let topLine = OCRLine(id: UUID(), regionID: topRegion.id, assetID: assetID, rawText: "1. 第一题", confidence: nil, scriptStyle: .printed, normalizedRect: try NormalizedRect(x: 0.05, y: 0.06, width: 0.9, height: 0.03))
+        let bottomLine = OCRLine(id: UUID(), regionID: bottomRegion.id, assetID: assetID, rawText: "2. 第二题", confidence: nil, scriptStyle: .printed, normalizedRect: try NormalizedRect(x: 0.05, y: 0.56, width: 0.9, height: 0.03))
+        let recognized = RecognizedPage(assetID: assetID, regions: [topRegion, bottomRegion], lines: [topLine, bottomLine],
+                                        providerID: "scripted", providerVersion: "1", supportedLanguages: [], warnings: [],
+                                        candidates: [SegmentationCandidate(id: UUID(), order: 1, regions: [topRegion], lineIDs: [topLine.id], needsConfirmation: false, warnings: []),
+                                                     SegmentationCandidate(id: UUID(), order: 2, regions: [bottomRegion], lineIDs: [bottomLine.id], needsConfirmation: false, warnings: [])])
+        let service = try await makeService(ocr: ScriptedOCRService(result: .success(recognized)), segmentation: PassThroughSegmentationService())
+        let batchID = try await service.importPages(pages: [ImportedPage(id: UUID(), bytes: try XCTUnwrap(image.pngData()), mediaType: .png, sourceName: "worksheet", order: 0)],
+            options: ImportOptions(duplicatePolicy: .skipExisting,
+                                   recognition: RecognitionOptions(languages: ["zh-Hans"], quality: .accurate, usesLanguageCorrection: false, maxPixelDimension: 4096),
+                                   recordMode: .image))
+        for await event in try await service.observeBatch(batchID: batchID) where event.isTerminal { break }
+        let records = try await service.list(query: RecordQuery(text: "", subjectID: nil, taxonomyNodeID: nil, includeDescendants: true,
+            reviewStates: [], reviewRequiredOnly: false, includeDeleted: false, sort: .updatedNewest), page: PageRequest(cursor: nil, limit: 50)).records
+        XCTAssertEqual(records.count, 2)
+        XCTAssertTrue(records.contains { $0.stem.displayText.contains("第一题") })
+        XCTAssertTrue(records.contains { $0.stem.displayText.contains("第二题") })
+        for record in records {
+            let croppedAssetID = try XCTUnwrap(record.sourceRegions.first?.assetID)
+            let payload = try await service.loadImage(assetID: croppedAssetID)
+            XCTAssertEqual(payload.pixelWidth, 400)
+            XCTAssertEqual(payload.pixelHeight, 300)
+        }
+    }
+
+    private func makeService(ocr: any OCRService = FailingOCRService(),
+                             segmentation: any SegmentationService = FailingSegmentationService()) async throws -> any AppService {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("mistakebook-workflow-\(UUID().uuidString)")
         let storage = try await StorageFactory.make(configuration: StorageConfiguration(rootDirectory: root, inMemory: true, excludeFromBackup: false, protection: .completeUntilFirstUserAuthentication))
         let seed = try TaxonomySeed(schemaVersion: 1, seedVersion: "test-seed", nodes: [
@@ -63,7 +98,7 @@ final class WorkflowBehaviorTests: XCTestCase {
             TaxonomyNode(id: "math/algebra/sets/subsets", parentID: "math/algebra/sets", name: "子集", subjectID: "math", aliases: ["subset"], origin: .seed, isActive: true, version: 1, userModifiedFields: []),
             TaxonomyNode(id: "math/geometry", parentID: "math", name: "几何", subjectID: "math", aliases: ["geometry"], origin: .seed, isActive: true, version: 1, userModifiedFields: [])
         ])
-        let intelligence = IntelligenceServices(ocr: FailingOCRService(), segmentation: FailingSegmentationService(), analysis: FailingAnalysisService(), value: FailingMistakeValueService(), classification: FailingClassificationService(), capabilities: FailingCapabilityProvider())
+        let intelligence = IntelligenceServices(ocr: ocr, segmentation: segmentation, analysis: FailingAnalysisService(), value: FailingMistakeValueService(), classification: FailingClassificationService(), capabilities: FailingCapabilityProvider())
         // The unsalted no-credential store keeps clearAllData independent of the
         // simulator's Keychain availability under unsigned test runners.
         let service = try await WorkflowFactory.make(repository: storage.repository, assets: storage.assets, intelligence: intelligence, exporter: FailingPDFExportService(), seedProvider: InlineSeedProvider(seed: seed), configuration: WorkflowConfiguration(maxBatchSize: 20, maxConcurrentJobs: 1, initialSettings: AppSettings(recognitionLanguages: ["zh-Hans", "en-US"], enhancedAnalysisEnabled: false, autoArchivePolicy: AutoArchivePolicy(version: "none", enabledRules: []))), credentialStore: UnavailableCredentialStore())
@@ -74,4 +109,8 @@ final class WorkflowBehaviorTests: XCTestCase {
 private struct InlineSeedProvider: TaxonomySeedProvider {
     let seed: TaxonomySeed
     func loadSeed() async throws -> TaxonomySeed { seed }
+}
+
+private struct PassThroughSegmentationService: SegmentationService {
+    func segment(page: RecognizedPage, options: SegmentationOptions) async throws -> [SegmentationCandidate] { page.candidates }
 }

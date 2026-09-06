@@ -24,6 +24,8 @@ public actor LocalAppService: AppService {
     private var globalRecordSubscribers: [UUID: AsyncStream<RecordEvent>.Continuation] = [:]
     private var recordSubscribers: [UUID: [UUID: AsyncStream<RecordEvent>.Continuation]] = [:]
     private var clearConfirmations: [UUID: ClearDataConfirmation] = [:]
+    /// Import-time record content mode per unfinished batch; terminal batches are dropped.
+    private var batchRecordModes: [UUID: ImportedRecordMode] = [:]
 
     public init(repository: any MistakeRepository, assets: any AssetStore,
                 intelligence: IntelligenceServices, exporter: any PDFExportService,
@@ -102,6 +104,7 @@ public actor LocalAppService: AppService {
             // operation may have committed files but not their database references.
             throw error
         }
+        batchRecordModes[batchID] = options.recordMode ?? .text
         await emitBatch(batchID: batchID)
         for id in jobIDs { enqueue(id) }
         return batchID
@@ -596,8 +599,9 @@ public actor LocalAppService: AppService {
             let candidates: [SegmentationCandidate]
             do { candidates = try await intelligence.segmentation.segment(page: page, options: SegmentationOptions(allowOverlappingRegions: true)) }
             catch is CancellationError { throw CancellationError() }
-            catch { candidates = [Self.fullPageCandidate(page: page)] }
-            let records = try await ensureRecords(job: running, page: page, candidates: candidates)
+            catch { candidates = [Self.fullPageCandidate(page: page, assetID: running.assetID)] }
+            let recordMode = batchRecordModes[running.batchID] ?? .text
+            let records = try await ensureRecords(job: running, page: page, candidates: candidates, recordMode: recordMode)
             _ = try await transition(jobID: jobID, state: .running, stage: .analyzing)
             for record in records {
                 try Task.checkCancellation()
@@ -629,7 +633,8 @@ public actor LocalAppService: AppService {
         try await repository.saveJob(job: updated); await emitBatch(batchID: updated.batchID)
     }
 
-    private func ensureRecords(job: ProcessingJob, page: RecognizedPage, candidates: [SegmentationCandidate]) async throws -> [MistakeRecord] {
+    private func ensureRecords(job: ProcessingJob, page: RecognizedPage, candidates: [SegmentationCandidate],
+                               recordMode: ImportedRecordMode) async throws -> [MistakeRecord] {
         try Task.checkCancellation()
         guard let current = try await repository.getJob(id: job.id), current.state == .running, current.attempt == job.attempt else { throw CancellationError() }
         if !current.producedRecordIDs.isEmpty {
@@ -637,20 +642,76 @@ public actor LocalAppService: AppService {
             for id in current.producedRecordIDs { if let record = try await repository.get(id: id) { existing.append(record) } }
             return existing
         }
-        let ordered = (candidates.isEmpty ? [Self.fullPageCandidate(page: page)] : candidates).sorted { $0.order < $1.order }
-        let values = ordered.map { candidate in
-            let lines = Self.linesForRegions(page.lines.filter { candidate.lineIDs.contains($0.id) }, regions: candidate.regions)
+        // Providers must reference the job's working image; normalize any
+        // provider-side asset id so cropping and image loading stay consistent.
+        let normalizedCandidates = candidates.map { candidate in
+            SegmentationCandidate(id: candidate.id, order: candidate.order,
+                regions: candidate.regions.map { Self.rebasingRegion($0, from: page.assetID, to: job.assetID) },
+                lineIDs: candidate.lineIDs, needsConfirmation: candidate.needsConfirmation, warnings: candidate.warnings)
+        }
+        let normalizedLines = page.lines.map { Self.rebasingLine($0, from: page.assetID, to: job.assetID) }
+        var values: [MistakeRecord] = []
+        for candidate in (normalizedCandidates.isEmpty ? [Self.fullPageCandidate(page: page, assetID: job.assetID)] : normalizedCandidates).sorted(by: { $0.order < $1.order }) {
+            let lines = Self.linesForRegions(normalizedLines.filter { candidate.lineIDs.contains($0.id) }, regions: candidate.regions)
             let stemLines = lines.filter { line in candidate.regions.first(where: { $0.id == line.regionID })?.purpose != .studentWork && line.scriptStyle != .handwritten }
             let studentLines = lines.filter { line in candidate.regions.first(where: { $0.id == line.regionID })?.purpose == .studentWork || line.scriptStyle == .handwritten }
             var reasons: [ReviewReason] = [.unclassified]
             if candidate.needsConfirmation { reasons.append(.unknownRegion) }
             if lines.contains(where: { ($0.confidence?.value ?? 1) < 0.6 }) { reasons.append(.lowConfidence) }
             if lines.isEmpty { reasons.append(.emptyText) }
-            return Self.emptyRecord(id: UUID(), regions: candidate.regions, ocrLines: lines,
+            // Image mode crops the question region per 题号 candidate; a failed
+            // crop falls back to the uncropped regions instead of dropping the record.
+            let regions: [SourceRegion]
+            if recordMode == .image, !candidate.regions.isEmpty {
+                regions = (try? await cropCandidateRegions(candidate.regions)) ?? candidate.regions
+            } else {
+                regions = candidate.regions
+            }
+            values.append(Self.emptyRecord(id: UUID(), regions: regions, ocrLines: lines,
                 stem: stemLines.map(\.rawText).joined(separator: "\n"), studentWork: studentLines.map(\.rawText).joined(separator: "\n"),
-                ocrOutcome: OperationOutcome(state: .success, error: nil, inputContentRevision: 1), reviewReasons: reasons)
+                ocrOutcome: OperationOutcome(state: .success, error: nil, inputContentRevision: 1), reviewReasons: reasons))
         }
         return try await saveDrafts(values, job: current)
+    }
+
+    /// Crops the union of the candidate's regions from the working image into a
+    /// derived asset and rebinds the regions to it.
+    private func cropCandidateRegions(_ regions: [SourceRegion]) async throws -> [SourceRegion] {
+        guard let sourceAssetID = regions.first?.assetID, let union = Self.unionNormalizedRect(of: regions) else { return regions }
+        let transaction = try await assets.beginTransaction()
+        do {
+            let transformed = try await assets.transform(request: ImageTransformRequest(
+                sourceAssetID: sourceAssetID, operation: .crop, cropRect: union, affectedRegions: regions),
+                transaction: transaction)
+            try await assets.commit(transaction: transaction)
+            return transformed.affectedRegions.isEmpty ? regions : transformed.affectedRegions
+        } catch {
+            try? await assets.rollback(transaction: transaction)
+            throw error
+        }
+    }
+
+    private static func unionNormalizedRect(of regions: [SourceRegion]) -> NormalizedRect? {
+        guard let first = regions.first else { return nil }
+        let minX = regions.map { $0.normalizedRect.x }.min() ?? first.normalizedRect.x
+        let minY = regions.map { $0.normalizedRect.y }.min() ?? first.normalizedRect.y
+        let maxX = regions.map { $0.normalizedRect.x + $0.normalizedRect.width }.max() ?? 1
+        let maxY = regions.map { $0.normalizedRect.y + $0.normalizedRect.height }.max() ?? 1
+        let x = max(0, minX), y = max(0, minY)
+        let right = min(1, maxX), bottom = min(1, maxY)
+        return try? NormalizedRect(x: x, y: y, width: max(0.001, right - x), height: max(0.001, bottom - y))
+    }
+
+    private static func rebasingRegion(_ region: SourceRegion, from pageAssetID: UUID, to jobAssetID: UUID) -> SourceRegion {
+        guard region.assetID == pageAssetID, pageAssetID != jobAssetID else { return region }
+        return SourceRegion(id: region.id, assetID: jobAssetID, normalizedRect: region.normalizedRect,
+                            purpose: region.purpose, isUserConfirmed: region.isUserConfirmed)
+    }
+
+    private static func rebasingLine(_ line: OCRLine, from pageAssetID: UUID, to jobAssetID: UUID) -> OCRLine {
+        guard line.assetID == pageAssetID, pageAssetID != jobAssetID else { return line }
+        return OCRLine(id: line.id, regionID: line.regionID, assetID: jobAssetID, rawText: line.rawText,
+                       confidence: line.confidence, scriptStyle: line.scriptStyle, normalizedRect: line.normalizedRect)
     }
 
     private func saveDrafts(_ records: [MistakeRecord], job: ProcessingJob) async throws -> [MistakeRecord] {
@@ -769,7 +830,7 @@ public actor LocalAppService: AppService {
         let event = BatchEvent(batch: batch, jobs: jobs, isTerminal: terminal, error: jobs.first(where: { $0.error != nil })?.error)
         if let only = subscriptionID { batchSubscribers[batchID]?[only]?.yield(event) }
         else { for continuation in batchSubscribers[batchID]?.map { $0.value } ?? [] { continuation.yield(event) } }
-        if terminal { for continuation in batchSubscribers.removeValue(forKey: batchID)?.map { $0.value } ?? [] { continuation.finish() } }
+        if terminal { batchRecordModes.removeValue(forKey: batchID); for continuation in batchSubscribers.removeValue(forKey: batchID)?.map { $0.value } ?? [] { continuation.finish() } }
     }
     private func emitRecord(kind: RecordEventKind, recordID: UUID? = nil, record: MistakeRecord? = nil) async {
         let id = record?.id ?? recordID; let event = RecordEvent(kind: kind, recordID: id, record: record, error: nil)
@@ -790,7 +851,7 @@ public actor LocalAppService: AppService {
     private static func addReasons(_ base: [ReviewReason], _ additions: [ReviewReason]) -> [ReviewReason] { var result = base; for value in additions where !result.contains(value) { result.append(value) }; return result }
     private static func nextVersion(_ value: String) -> String { value + ".next" }
     private static func applyAutomaticPolicy(_ result: ClassificationResult, policy: AutoArchivePolicy) -> ClassificationResult { guard let candidate = result.candidates.first, candidate.source == .rule, candidate.calibrated, let id = candidate.validationPolicyID, let rule = policy.enabledRules.first(where: { $0.id == id && $0.nodeID == candidate.nodeID }), rule.minimumScore.map({ (candidate.score ?? -Double.infinity) >= $0 }) ?? true, !candidate.evidence.isEmpty else { return result }; return ClassificationResult(subjectID: result.subjectID, candidates: result.candidates, primaryNodeID: candidate.nodeID, assignmentState: .automatic, assignedBy: .rule, taxonomyVersion: result.taxonomyVersion, inputContentRevision: result.inputContentRevision, suggestedTags: result.suggestedTags) }
-    private static func fullPageCandidate(page: RecognizedPage) -> SegmentationCandidate { let region = page.regions.first ?? SourceRegion(id: UUID(), assetID: page.assetID, normalizedRect: .fullPage, purpose: .unknown, isUserConfirmed: false); let visuals = page.regions.filter { $0.id != region.id && $0.purpose == .diagram }; return SegmentationCandidate(id: UUID(), order: 1, regions: [region] + visuals, lineIDs: page.lines.map(\.id), needsConfirmation: true, warnings: [ServiceWarning(code: "segmentation.fallback", message: "分题服务失败，已回退整页草稿；图像/表格/公式候选区域已保留。", regionID: region.id)]) }
+    private static func fullPageCandidate(page: RecognizedPage, assetID: UUID) -> SegmentationCandidate { let region = page.regions.first ?? SourceRegion(id: UUID(), assetID: assetID, normalizedRect: .fullPage, purpose: .unknown, isUserConfirmed: false); let rebased = SourceRegion(id: region.id, assetID: assetID, normalizedRect: region.normalizedRect, purpose: region.purpose, isUserConfirmed: region.isUserConfirmed); let visuals = page.regions.filter { $0.id != region.id && $0.purpose == .diagram }.map { Self.rebasingRegion($0, from: page.assetID, to: assetID) }; return SegmentationCandidate(id: UUID(), order: 1, regions: [rebased] + visuals, lineIDs: page.lines.map(\.id), needsConfirmation: true, warnings: [ServiceWarning(code: "segmentation.fallback", message: "分题服务失败，已回退整页草稿；图像/表格/公式候选区域已保留。", regionID: region.id)]) }
     private static func classificationPath(record: MistakeRecord, taxonomy: TaxonomySnapshot) -> [String] { guard var id = record.classification.primaryNodeID else { return ["待分类"] }; let byID = Dictionary(uniqueKeysWithValues: taxonomy.nodes.map { ($0.id, $0) }); var result: [String] = []; var seen: Set<String> = []; while let node = byID[id], seen.insert(id).inserted { result.insert(node.name, at: 0); guard let parent = node.parentID else { break }; id = parent }; return result }
     private static func imageDecisions(record: MistakeRecord, request: ExportRequest, warnings: inout [ServiceWarning]) throws -> [ExportImageDecision] { var result: [ExportImageDecision] = []; for region in record.sourceRegions { if let provided = request.imageDecisions.first(where: { $0.regionID == region.id }) { if provided.disposition == .crop && provided.cropRect == nil { throw AppError(code: .unsupportedInput) }; result.append(provided); continue }; let risky = region.purpose == .studentWork || region.purpose == .referenceAnswer; let disposition: ExportImageDisposition = request.options.mode == .practice && risky ? .exclude : (request.options.includeHandwriting || !risky ? .includeFullImage : .exclude); if risky && request.options.mode == .practice { warnings.append(ServiceWarning(code: "export.answerRisk", message: "练习版已排除未经确认的答案/批注区域。", regionID: region.id)) }; result.append(ExportImageDecision(regionID: region.id, assetID: region.assetID, disposition: disposition, cropRect: nil, answerRisk: risky ? .mayContainAnswer : .unknown, userConfirmed: false)) }; return result }
 }
