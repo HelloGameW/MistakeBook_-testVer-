@@ -55,7 +55,11 @@ final class WorkflowBehaviorTests: XCTestCase {
     }
 
     func testImageModeCropsQuestionRegionImages() async throws {
-        let image = UIGraphicsImageRenderer(size: CGSize(width: 400, height: 600)).image { context in
+        // Force scale 1: the default format inherits the display scale (3x on
+        // modern simulators), which would silently triple the PNG's pixel size.
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: CGSize(width: 400, height: 600), format: format).image { context in
             UIColor.white.setFill()
             context.fill(CGRect(x: 0, y: 0, width: 400, height: 600))
         }
