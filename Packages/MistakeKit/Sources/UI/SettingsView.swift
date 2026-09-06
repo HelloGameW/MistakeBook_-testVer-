@@ -346,6 +346,24 @@ private struct APIConfigurationFields: View {
 
 private extension FeatureCapability { var featureKey: String { "\(feature.rawValue)-\(subjectID ?? "all")" } }
 
+/// One-way secret input: values are only written to Keychain through AppService
+/// and are never read back into this field.
+private struct SecretField: View {
+    let title: String
+    @Binding var text: String
+
+    init(_ title: String, text: Binding<String>) {
+        self.title = title
+        self.text = text
+    }
+
+    var body: some View {
+        SecureField(title, text: $text)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+    }
+}
+
 struct AllRecordsExportSheet: View {
     let service: any AppService
     @State private var records: [MistakeRecord] = []

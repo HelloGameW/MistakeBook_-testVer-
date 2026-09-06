@@ -132,7 +132,9 @@ private enum FoundationModelsBridge {
                 {"status":"hypotheses或insufficientEvidence","hypotheses":[{"kind":"recognitionConcern或possibleSolutionError或referenceDifference或reading或knowledge或confusion或strategy或reasoning或procedure或expression","summary":"","reason":"","nextAction":"","certainty":"tentative或needsConfirmation","evidence":[{"regionID":"UUID","lineID":null,"quote":null,"evidenceSource":"student或reference或teacher"}]}],"limitations":[]}
                 hypotheses 状态必须提供非空候选及证据；insufficientEvidence 的 hypotheses 必须为空。
                 """)
-                let response = try await session.respond(to: prompt)
+                // iOS 26.x point releases retyped respond(to:) from String to the
+                // Prompt struct; a String variable no longer converts implicitly.
+                let response = try await session.respond(to: Prompt(prompt))
                 return response.content
             }
             group.addTask {
