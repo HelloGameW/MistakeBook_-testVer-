@@ -6,12 +6,13 @@ import Contracts
 @MainActor
 struct SettingsView: View {
     let service: any AppService
+    let announcementStore: AnnouncementStore
 
     @Environment(\.dismiss) private var dismiss
     @State private var capabilities = CapabilityReport(checkedAt: .now, features: [])
     @State private var credentialStatus = CredentialStatus(configured: [])
 
-    @State private var processingMode: ProcessingMode = .local
+    @State private var processingMode: ProcessingMode = .api
     @State private var languageText = "zh-Hans, en-US"
     @State private var appleEnhanced = true
 
@@ -29,7 +30,7 @@ struct SettingsView: View {
     @State private var glmChatModel = "glm-4.7"
     @State private var baiduSecretKey = ""
 
-    @State private var ocrChoice: OCRChoice = .appleVision
+    @State private var ocrChoice: OCRChoice = .glm
     @State private var analysisChoice: AnalysisChoice = .appleIntelligence
     @State private var valueChoice: ValueChoice = .local
 
@@ -42,16 +43,23 @@ struct SettingsView: View {
     @State private var showingAllExport = false
     @State private var showingSavePrompt = false
     @State private var loadedSnapshot: SettingsSnapshot?
+    @AppStorage(AppAppearanceMode.storageKey) private var appearanceRawValue = AppAppearanceMode.system.rawValue
+
+    init(service: any AppService, announcementStore: AnnouncementStore) {
+        self.service = service
+        self.announcementStore = announcementStore
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 messageSections
+                appearanceSection
                 modeSection
-                providerSection
-                assignmentSection
+                modelSelectionSection
                 saveSection
                 statusSection
+                announcementSection
                 dataSection
             }
             .navigationTitle("设置")
@@ -109,93 +117,57 @@ struct SettingsView: View {
         }
     }
 
-    private var providerSection: some View {
-        Section {
-            NavigationLink {
-                ProviderDetailView(title: "DeepSeek", modelPresets: ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"],
-                                   keyKind: .deepSeek, profile: $deepSeek,
-                                   keyConfigured: credentialStatus.contains(.ocrModelAPIKey) || credentialStatus.contains(.analysisModelAPIKey) || credentialStatus.contains(.mistakeValueModelAPIKey))
-            } label: {
-                providerRow("DeepSeek", detail: apiStatus(filled: !deepSeek.apiKey.isEmpty || credentialStatus.contains(.ocrModelAPIKey) || credentialStatus.contains(.analysisModelAPIKey) || credentialStatus.contains(.mistakeValueModelAPIKey)))
+    private var appearanceSection: some View {
+        Section("外观") {
+            Picker("配色", selection: $appearanceRawValue) {
+                ForEach(AppAppearanceMode.allCases) { mode in
+                    Text(mode.title).tag(mode.rawValue)
+                }
             }
-            NavigationLink {
-                ProviderDetailView(title: "ChatGPT / OpenAI 兼容",
-                                   modelPresets: ["gpt-6 astra", "gpt-5.6 sol", "luna", "terra"],
-                                   keyKind: .openAICompatible, profile: $openAICompatible,
-                                   keyConfigured: credentialStatus.contains(.ocrModelAPIKey) || credentialStatus.contains(.analysisModelAPIKey) || credentialStatus.contains(.mistakeValueModelAPIKey))
-            } label: {
-                providerRow("ChatGPT / OpenAI 兼容", detail: apiStatus(filled: !openAICompatible.apiKey.isEmpty || credentialStatus.contains(.ocrModelAPIKey) || credentialStatus.contains(.analysisModelAPIKey) || credentialStatus.contains(.mistakeValueModelAPIKey)))
-            }
-            NavigationLink {
-                BaiduProviderView(strategy: $baiduStrategy, formula: $baiduFormula,
-                                  layout: $baiduLayout, mixed: $baiduMixed,
-                                  apiKey: $baiduAPIKey, secretKey: $baiduSecretKey,
-                                  keySaved: credentialStatus.contains(.baiduAPIKey))
-            } label: {
-                providerRow("百度教育", detail: credentialStatus.contains(.baiduAPIKey) ? "已配置" : "未填写密钥")
-            }
-            NavigationLink {
-                GLMProviderView(apiKey: $glmAPIKey, chatModel: $glmChatModel,
-                                keySaved: credentialStatus.contains(.glmAPIKey))
-            } label: {
-                providerRow("智谱 GLM", detail: glmAPIKey.isEmpty ? (credentialStatus.contains(.glmAPIKey) ? "已填入 API" : "未填入 API") : "已填入 API")
-            }
-            NavigationLink {
-                AppleIntelligenceView(enabled: $appleEnhanced, capabilities: capabilities)
-            } label: {
-                providerRow("Apple 智能", detail: appleEnhanced ? "已开启" : "已关闭")
-            }
-        } header: {
-            Text("服务商")
+            .pickerStyle(.menu)
         } footer: {
-            Text("在这里填写密钥和模型；下面决定每件事分别交给谁做。")
+            Text("跟随系统时会随设备的浅色/深色设置切换；图标也会使用对应外观资源。")
         }
     }
 
-    private func providerRow(_ name: String, detail: String) -> some View {
-        LabeledContent(name) {
-            Text(detail).foregroundStyle(.secondary)
-        }
-    }
-
-    private func apiStatus(filled: Bool) -> String { filled ? "已填入 API" : "未填入 API" }
-
-    private var assignmentSection: some View {
+    private var modelSelectionSection: some View {
         Section {
-            LabeledContent("文字识别用") {
-                Picker("文字识别用", selection: $ocrChoice) {
-                    Text("本机识别").tag(OCRChoice.appleVision)
-                    Text("DeepSeek").tag(OCRChoice.deepSeek)
-                    Text("ChatGPT").tag(OCRChoice.openAICompatible)
-                    Text("智谱 GLM").tag(OCRChoice.glm)
-                    Text("百度教育").tag(OCRChoice.baiduEducation)
+            NavigationLink {
+                ModelSelectionView(
+                    deepSeek: $deepSeek,
+                    openAICompatible: $openAICompatible,
+                    baiduStrategy: $baiduStrategy,
+                    baiduFormula: $baiduFormula,
+                    baiduLayout: $baiduLayout,
+                    baiduMixed: $baiduMixed,
+                    baiduAPIKey: $baiduAPIKey,
+                    baiduSecretKey: $baiduSecretKey,
+                    glmAPIKey: $glmAPIKey,
+                    glmChatModel: $glmChatModel,
+                    appleEnhanced: $appleEnhanced,
+                    ocrChoice: $ocrChoice,
+                    analysisChoice: $analysisChoice,
+                    valueChoice: $valueChoice,
+                    credentialStatus: credentialStatus,
+                    capabilities: capabilities)
+            } label: {
+                LabeledContent("模型选择") {
+                    Text(modelSelectionSummary).foregroundStyle(.secondary)
                 }
-                .labelsHidden()
             }
-            LabeledContent("错因分析用") {
-                Picker("错因分析用", selection: $analysisChoice) {
-                    Text("规则引擎").tag(AnalysisChoice.localRules)
-                    Text("Apple 智能").tag(AnalysisChoice.appleIntelligence)
-                    Text("DeepSeek").tag(AnalysisChoice.deepSeek)
-                    Text("ChatGPT").tag(AnalysisChoice.openAICompatible)
-                    Text("智谱 GLM").tag(AnalysisChoice.glm)
-                }
-                .labelsHidden()
-            }
-            LabeledContent("复习价值用") {
-                Picker("复习价值用", selection: $valueChoice) {
-                    Text("本地评估").tag(ValueChoice.local)
-                    Text("DeepSeek").tag(ValueChoice.deepSeek)
-                    Text("ChatGPT").tag(ValueChoice.openAICompatible)
-                    Text("智谱 GLM").tag(ValueChoice.glm)
-                }
-                .labelsHidden()
-            }
-                } header: {
-                    Text("服务分配")
-                } footer: {
-                    Text("所选服务商将使用上方填写的密钥与模型。")
-                }
+        } footer: {
+            Text("在“模型选择”中统一配置服务商、模型和各项任务的使用方式。")
+        }
+    }
+
+    private var modelSelectionSummary: String {
+        switch ocrChoice {
+        case .glm: "文字识别：glm-ocr"
+        case .appleVision: "文字识别：本机 Vision"
+        case .deepSeek: "文字识别：DeepSeek"
+        case .openAICompatible: "文字识别：ChatGPT / OpenAI 兼容"
+        case .baiduEducation: "文字识别：百度教育"
+        }
     }
 
     private var saveSection: some View {
@@ -237,6 +209,23 @@ struct SettingsView: View {
             Button("清空本机数据", role: .destructive) { prepareClear() }
             Text("清空会终止任务并删除题目、图片、撤销记录、设置和已保存的密钥，确认后无法找回。")
                 .font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
+    private var announcementSection: some View {
+        Section("公告") {
+            NavigationLink {
+                AnnouncementManagementView(store: announcementStore)
+            } label: {
+                LabeledContent("管理公告") {
+                    Text(announcementStore.latestPublished == nil
+                         ? "暂无已发布公告"
+                         : "\(announcementStore.publishedAnnouncements.count) 条已发布")
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } footer: {
+            Text("公告仅保存在本机，用于首页横幅和公告中心展示。")
         }
     }
 
@@ -514,6 +503,130 @@ struct SettingsView: View {
     }
 }
 
+/// 模型选择父级：集中管理服务商配置，以及 OCR、错因分析和复习价值的分配。
+private struct ModelSelectionView: View {
+    @Binding var deepSeek: ProviderProfile
+    @Binding var openAICompatible: ProviderProfile
+    @Binding var baiduStrategy: BaiduEducationStrategy
+    @Binding var baiduFormula: Bool
+    @Binding var baiduLayout: Bool
+    @Binding var baiduMixed: Bool
+    @Binding var baiduAPIKey: String
+    @Binding var baiduSecretKey: String
+    @Binding var glmAPIKey: String
+    @Binding var glmChatModel: String
+    @Binding var appleEnhanced: Bool
+    @Binding var ocrChoice: OCRChoice
+    @Binding var analysisChoice: AnalysisChoice
+    @Binding var valueChoice: ValueChoice
+    let credentialStatus: CredentialStatus
+    let capabilities: CapabilityReport
+
+    var body: some View {
+        Form {
+            providerSection
+            assignmentSection
+        }
+        .navigationTitle("模型选择")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var providerSection: some View {
+        Section {
+            NavigationLink {
+                ProviderDetailView(title: "DeepSeek", modelPresets: ["deepseek-v4-flash", "deepseek-v4-flash-vision-exp"],
+                                   keyKind: .deepSeek, profile: $deepSeek,
+                                   keyConfigured: hasModelAPIKey)
+            } label: {
+                providerRow("DeepSeek", detail: apiStatus(filled: !deepSeek.apiKey.isEmpty || hasModelAPIKey))
+            }
+            NavigationLink {
+                ProviderDetailView(title: "ChatGPT / OpenAI 兼容",
+                                   modelPresets: ["gpt-6 astra", "gpt-5.6 sol", "luna", "terra"],
+                                   keyKind: .openAICompatible, profile: $openAICompatible,
+                                   keyConfigured: hasModelAPIKey)
+            } label: {
+                providerRow("ChatGPT / OpenAI 兼容", detail: apiStatus(filled: !openAICompatible.apiKey.isEmpty || hasModelAPIKey))
+            }
+            NavigationLink {
+                BaiduProviderView(strategy: $baiduStrategy, formula: $baiduFormula,
+                                  layout: $baiduLayout, mixed: $baiduMixed,
+                                  apiKey: $baiduAPIKey, secretKey: $baiduSecretKey,
+                                  keySaved: credentialStatus.contains(.baiduAPIKey))
+            } label: {
+                providerRow("百度教育", detail: credentialStatus.contains(.baiduAPIKey) ? "已配置" : "未填写密钥")
+            }
+            NavigationLink {
+                GLMProviderView(apiKey: $glmAPIKey, chatModel: $glmChatModel,
+                                keySaved: credentialStatus.contains(.glmAPIKey))
+            } label: {
+                providerRow("智谱 GLM", detail: glmAPIKey.isEmpty ? (credentialStatus.contains(.glmAPIKey) ? "已填入 API" : "未填入 API") : "已填入 API")
+            }
+            NavigationLink {
+                AppleIntelligenceView(enabled: $appleEnhanced, capabilities: capabilities)
+            } label: {
+                providerRow("Apple 智能", detail: appleEnhanced ? "已开启" : "已关闭")
+            }
+        } header: {
+            Text("服务商与模型")
+        } footer: {
+            Text("智谱 GLM 的图像识别固定使用 glm-ocr；对话模型仅用于错因分析和复习价值评估。")
+        }
+    }
+
+    private var assignmentSection: some View {
+        Section {
+            LabeledContent("文字识别用") {
+                Picker("文字识别用", selection: $ocrChoice) {
+                    Text("本机识别").tag(OCRChoice.appleVision)
+                    Text("DeepSeek").tag(OCRChoice.deepSeek)
+                    Text("ChatGPT").tag(OCRChoice.openAICompatible)
+                    Text("智谱 GLM · glm-ocr").tag(OCRChoice.glm)
+                    Text("百度教育").tag(OCRChoice.baiduEducation)
+                }
+                .labelsHidden()
+            }
+            LabeledContent("错因分析用") {
+                Picker("错因分析用", selection: $analysisChoice) {
+                    Text("规则引擎").tag(AnalysisChoice.localRules)
+                    Text("Apple 智能").tag(AnalysisChoice.appleIntelligence)
+                    Text("DeepSeek").tag(AnalysisChoice.deepSeek)
+                    Text("ChatGPT").tag(AnalysisChoice.openAICompatible)
+                    Text("智谱 GLM").tag(AnalysisChoice.glm)
+                }
+                .labelsHidden()
+            }
+            LabeledContent("复习价值用") {
+                Picker("复习价值用", selection: $valueChoice) {
+                    Text("本地评估").tag(ValueChoice.local)
+                    Text("DeepSeek").tag(ValueChoice.deepSeek)
+                    Text("ChatGPT").tag(ValueChoice.openAICompatible)
+                    Text("智谱 GLM").tag(ValueChoice.glm)
+                }
+                .labelsHidden()
+            }
+        } header: {
+            Text("任务分配")
+        } footer: {
+            Text("所选服务商将使用上方填写的密钥与模型。")
+        }
+    }
+
+    private var hasModelAPIKey: Bool {
+        credentialStatus.contains(.ocrModelAPIKey)
+            || credentialStatus.contains(.analysisModelAPIKey)
+            || credentialStatus.contains(.mistakeValueModelAPIKey)
+    }
+
+    private func providerRow(_ name: String, detail: String) -> some View {
+        LabeledContent(name) {
+            Text(detail).foregroundStyle(.secondary)
+        }
+    }
+
+    private func apiStatus(filled: Bool) -> String { filled ? "已填入 API" : "未填入 API" }
+}
+
 private struct ProviderProfile: Equatable {
     var apiKey = ""
     var baseURL: String
@@ -699,6 +812,10 @@ private enum ProviderKeyVerifier {
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"tool_type\"\r\n\r\nhand_write\r\n".data(using: .utf8)!)
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"language_type\"\r\n\r\nCHN_ENG\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"probability\"\r\n\r\ntrue\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"file\"; filename=\"probe.png\"\r\n".data(using: .utf8)!)
         body.append("Content-Type: image/png\r\n\r\n".data(using: .utf8)!)
         body.append(probe)
@@ -774,6 +891,16 @@ private struct GLMProviderView: View {
                 }
             } footer: {
                 Text("密钥仅存储于本机钥匙串，保存后不再显示；留空表示不修改。密钥可在智谱开放平台控制台获取。")
+            }
+            Section {
+                LabeledContent("图像识别模型", value: "glm-ocr")
+                Text("使用智谱 OCR 文件解析接口识别图片中的印刷体和手写体；该模型固定用于图像识别，无需单独填写模型名称。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Text("图像识别")
+            } footer: {
+                Text("接口：open.bigmodel.cn/api/paas/v4/files/ocr")
             }
             Section {
                 TextField("对话模型名称", text: $chatModel)

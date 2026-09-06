@@ -41,7 +41,9 @@ private struct CompositeCapabilityProvider: CapabilityProvider, Sendable {
         let languages = (try? await ocr.supportedLanguages()) ?? []
         let analysisReport = try await analysis.capabilities()
         let credentials = (try? await credentialStore.status()) ?? CredentialStatus(configured: [])
-        let remoteOCRReady = credentials.contains(.ocrModelAPIKey) || (credentials.contains(.baiduAPIKey) && credentials.contains(.baiduSecretKey))
+        let remoteOCRReady = credentials.contains(.ocrModelAPIKey)
+            || credentials.contains(.glmAPIKey)
+            || (credentials.contains(.baiduAPIKey) && credentials.contains(.baiduSecretKey))
         let valueReady = credentials.contains(.mistakeValueModelAPIKey)
         let fixed = [
             FeatureCapability(feature: .ocr, subjectID: "local-or-api", state: languages.isEmpty && !remoteOCRReady ? .unavailable : .available,

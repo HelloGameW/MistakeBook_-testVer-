@@ -13,7 +13,7 @@ public enum OCRProviderKind: String, Codable, Sendable, Equatable, CaseIterable 
     case appleVision
     case modelAPI
     case baiduEducation
-    /// 智谱 BigModel GLM OCR（工具 API，`tool_type=hand_write`）。
+    /// 智谱 BigModel GLM-OCR（工具 API，`tool_type=hand_write`）。
     case glm
 }
 

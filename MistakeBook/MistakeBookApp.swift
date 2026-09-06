@@ -4,9 +4,12 @@ import UI
 
 @main
 struct MistakeBookApp: App {
+    @AppStorage(AppAppearanceMode.storageKey) private var appearanceRawValue = AppAppearanceMode.system.rawValue
+
     var body: some Scene {
         WindowGroup {
             StartupView()
+                .preferredColorScheme(AppAppearanceMode(rawValue: appearanceRawValue)?.colorScheme)
         }
     }
 }
