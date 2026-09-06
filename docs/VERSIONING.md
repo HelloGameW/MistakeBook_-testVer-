@@ -13,4 +13,4 @@ sh Scripts/bump-version.sh bugfix
 sh Scripts/bump-version.sh feature
 ```
 
-当前版本为 `0.4.4`，构建号为 `19`。`0.4.4` 修复设置页"服务商"分节的非法 Section 形态（`Section("标题") { } footer: { }` 不是合法初始化器，导致 extra trailing closure 编译错误），已改为 `Section { } header: { } footer: { }`，并全仓库排查确认无同类写法。
+当前版本为 `0.5.0`，构建号为 `20`。说明：错题量化体系应用时（提交 b3ef331）误将 README/VERSIONING 手写为 0.5.0/19 而未执行版本脚本，导致 xcconfig 停留在 0.4.3 并被后续修复轮顺延为 0.4.4/19，出现版本号回退假象；现按功能规则正式补齐为 0.5.0/20。今后版本号一律通过 `Scripts/bump-version.sh` 变更，不再手改。
