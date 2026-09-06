@@ -449,6 +449,7 @@ struct SettingsView: View {
     private func credentialTitle(_ kind: CredentialKind) -> String {
         switch kind {
         case .ocrModelAPIKey: "清除文字识别密钥"
+        case .glmAPIKey: "清除智谱 GLM 密钥"
         case .analysisModelAPIKey: "清除错因分析密钥"
         case .mistakeValueModelAPIKey: "清除复习价值密钥"
         case .baiduAPIKey: "清除百度 API Key"
