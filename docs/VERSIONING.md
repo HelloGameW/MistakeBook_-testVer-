@@ -13,4 +13,4 @@ sh Scripts/bump-version.sh bugfix
 sh Scripts/bump-version.sh feature
 ```
 
-当前版本为 `0.5.0`，构建号为 `19`。`0.5.0` 应用错题量化体系：`课标量化体系/data` 的九科课标属性层（109 个考点）随包内置，`CurriculumQuantificationEngine` 按模型 W=Σwᵢfᵢ、I=100·W·F_repeat·F_error·F_target·F_prop、P=I·(1−掌握度)^γ·F_due 评估每道错题（六大维度映射见 docs/03 §6），`evaluateValue` 注入同考点重复次数/掌握度/复习时效等行为信号，未知考点自动回退原结果。
+当前版本为 `0.4.4`，构建号为 `19`。`0.4.4` 修复设置页"服务商"分节的非法 Section 形态（`Section("标题") { } footer: { }` 不是合法初始化器，导致 extra trailing closure 编译错误），已改为 `Section { } header: { } footer: { }`，并全仓库排查确认无同类写法。

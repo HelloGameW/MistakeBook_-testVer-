@@ -108,7 +108,7 @@ struct SettingsView: View {
     }
 
     private var providerSection: some View {
-        Section("服务商") {
+        Section {
             NavigationLink {
                 ProviderDetailView(title: "DeepSeek", showsModelPresets: true, profile: $deepSeek)
             } label: {
