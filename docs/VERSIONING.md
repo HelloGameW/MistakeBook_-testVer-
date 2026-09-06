@@ -13,4 +13,4 @@ sh Scripts/bump-version.sh bugfix
 sh Scripts/bump-version.sh feature
 ```
 
-当前版本为 `0.5.1`，构建号为 `21`。`0.5.1` 修复量化相关测试代码的编译错误：XCTest 断言宏的自动闭包不支持 `await`（先取值再断言），以及未加 `@testable` 导致 internal 静态方法不可访问。
+当前版本为 `0.5.2`，构建号为 `22`。`0.5.2` 修复量化引擎测试中维度字段的接收者层级错误（`result.examValue` → `result.dimensions.examValue` 等 5 处）。全量错误复盘见工作区根目录《错误报告.md》。
