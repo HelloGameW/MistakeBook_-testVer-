@@ -10,11 +10,15 @@ public struct MistakeBookRootView: View {
     @State private var showingImport = false
     @State private var showingSettings = false
     @State private var showingTaxonomy = false
+    @State private var showingAnnouncements = false
+    @State private var didAutoPresentAnnouncement = false
     @State private var dataRefreshID = 0
     @State private var lastBatchID: UUID?
+    @StateObject private var announcementStore: AnnouncementStore
 
     public init(service: any AppService) {
         self.service = service
+        _announcementStore = StateObject(wrappedValue: AnnouncementStore())
     }
 
     public var body: some View {
@@ -33,11 +37,31 @@ public struct MistakeBookRootView: View {
                 .tabItem { Label("归档", systemImage: "folder") }
                 .tag(RootTab.archive)
         }
+        .safeAreaInset(edge: .top, spacing: 8) {
+            if let announcement = announcementStore.latestPublished {
+                AnnouncementBanner(announcement: announcement) {
+                    announcementStore.markRead(announcement.id)
+                    showingAnnouncements = true
+                }
+                .padding(.horizontal)
+            }
+        }
+        .task { announcementStore.load() }
+        .onChange(of: announcementStore.latestUnreadPublished?.id) { _, _ in
+            guard !didAutoPresentAnnouncement,
+                  let announcement = announcementStore.latestUnreadPublished else { return }
+            didAutoPresentAnnouncement = true
+            announcementStore.markRead(announcement.id)
+            showingAnnouncements = true
+        }
         .sheet(isPresented: $showingImport) {
             ImportFlowView(service: service, onBatch: { lastBatchID = $0 }) { dataRefreshID += 1 }
         }
         .sheet(isPresented: $showingSettings) {
-            SettingsView(service: service)
+            SettingsView(service: service, announcementStore: announcementStore)
+        }
+        .sheet(isPresented: $showingAnnouncements) {
+            AnnouncementCenterView(store: announcementStore)
         }
         .sheet(isPresented: $showingTaxonomy) {
             ArchiveView(service: service)

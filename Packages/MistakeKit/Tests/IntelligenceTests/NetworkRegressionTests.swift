@@ -46,4 +46,45 @@ final class NetworkRegressionTests: XCTestCase {
         XCTAssertNil(OpenAICompatibleClient.extractJSONObject(from: "说明 {invalid} 结束"))
         XCTAssertNil(OpenAICompatibleClient.extractJSONObject(from: "没有 JSON"))
     }
+
+    func testGLMOCRRequestUsesDocumentedMultipartFields() throws {
+        let body = GLMOCRService.multipartBody(imageBytes: Data([0x01, 0x02]), filename: "question.png",
+                                                mime: "image/png", languageType: "CHN_ENG", boundary: "test-boundary")
+        let text = String(decoding: body, as: UTF8.self)
+        XCTAssertEqual(GLMOCRService.modelIdentifier, "glm-ocr")
+        XCTAssertTrue(text.contains("name=\"tool_type\"\r\n\r\nhand_write"))
+        XCTAssertTrue(text.contains("name=\"language_type\"\r\n\r\nCHN_ENG"))
+        XCTAssertTrue(text.contains("name=\"probability\"\r\n\r\ntrue"))
+        XCTAssertTrue(text.contains("name=\"file\"; filename=\"question.png\""))
+    }
+
+    func testGLMOCRResponseParsesWordsLocationsAndConfidence() throws {
+        let assetID = UUID()
+        let image = ImagePayload(assetID: assetID, bytes: Data([0x01]), mediaType: .png,
+                                 orientation: .up, pixelWidth: 1000, pixelHeight: 500)
+        let response = #"""
+        {
+            "task_id": "task-1",
+            "message": "success",
+            "status": "succeeded",
+            "words_result_num": 1,
+            "words_result": [{
+                "location": {"left": 100, "top": 50, "width": 400, "height": 80},
+                "words": "计算 1 + 1",
+                "probability": {"average": 0.91, "variance": 0.02, "min": 0.84}
+            }]
+        }
+        """#
+
+        let page = try GLMOCRService.parse(response: Data(response.utf8), image: image)
+        XCTAssertEqual(page.providerID, "glm-ocr")
+        XCTAssertEqual(page.providerVersion, "glm-ocr")
+        XCTAssertEqual(page.lines.count, 1)
+        XCTAssertEqual(page.lines[0].rawText, "计算 1 + 1")
+        XCTAssertEqual(try XCTUnwrap(page.lines[0].confidence?.value), 0.91, accuracy: 0.000001)
+        XCTAssertEqual(page.lines[0].normalizedRect.x, 0.1, accuracy: 0.000001)
+        XCTAssertEqual(page.lines[0].normalizedRect.y, 0.1, accuracy: 0.000001)
+        XCTAssertEqual(page.lines[0].normalizedRect.width, 0.4, accuracy: 0.000001)
+        XCTAssertEqual(page.lines[0].normalizedRect.height, 0.16, accuracy: 0.000001)
+    }
 }

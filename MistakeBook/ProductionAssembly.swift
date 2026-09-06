@@ -45,7 +45,7 @@ enum ProductionAssembly {
                 initialSettings: AppSettings(recognitionLanguages: ["zh-Hans", "en-US"],
                     enhancedAnalysisEnabled: true,
                     autoArchivePolicy: AutoArchivePolicy(version: "unvalidated-disabled", enabledRules: []),
-                    processingMode: .local, ocrProvider: .appleVision,
+                    processingMode: .api, ocrProvider: .glm,
                     analysisProvider: .appleFoundationModels, mistakeValueProvider: .localHeuristic)),
             credentialStore: credentialStore)
     }

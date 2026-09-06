@@ -2,10 +2,21 @@
 
 MistakeBook 支持本地、API 和自动三种处理模式。
 
-- OCR：Apple Vision、自定义模型 OCR、百度教育 OCR。
+- OCR：Apple Vision、GLM-OCR、自定义模型 OCR、百度教育 OCR。
 - 错因分析：OpenAI-compatible Chat Completions 风格模型接口。
 - 错题价值量化：OpenAI-compatible 模型接口，模型返回维度分，客户端按固定权重计算总分。
 - 百度教育 OCR：支持试卷切题与试卷分析策略。
+
+## GLM-OCR
+
+在“设置 → 模型选择 → 智谱 GLM”中填写 BigModel API Key，并在“设置 → 模型选择 → 任务分配”将文字识别设为“智谱 GLM · glm-ocr”。图像识别使用智谱 OCR 文件解析工具，不发送未经文档定义的 `model` 表单字段：
+
+- Endpoint：`https://open.bigmodel.cn/api/paas/v4/files/ocr`
+- Method：`POST`，`Authorization: Bearer <API_KEY>`，`multipart/form-data`
+- 表单字段：`file`、`tool_type=hand_write`、`language_type=CHN_ENG`、`probability=true`
+- 支持 PNG/JPG/JPEG/BMP，单张图片不超过 8 MB；返回的 `words_result` 行文本、像素坐标和置信度会转换为应用内部的 OCR 行。
+
+接口参数和返回结构以[智谱 OCR 官方文档](https://docs.bigmodel.cn/cn/guide/tools/zhipu-ocr)为准。
 
 ## DeepSeek
 

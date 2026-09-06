@@ -41,8 +41,26 @@ public actor LocalAppService: AppService {
         guard !didStart else { return }
         guard configuration.maxBatchSize > 0, configuration.maxBatchSize <= 20,
               configuration.maxConcurrentJobs == 1 else { throw AppError(code: .unsupportedInput) }
-        if let stored = try await repository.loadSettings() { currentSettings = stored }
-        else { try await repository.saveSettings(settings: currentSettings) }
+        if var stored = try await repository.loadSettings() {
+            // One-time default switch (GLM OCR): settings saved by an older
+            // build carry the old default pair (local + Vision); upgrade them
+            // so "default GLM OCR" also applies to existing installs. Explicit
+            // non-default choices never match this guard and are preserved.
+            if stored.resolvedProcessingMode == .local, stored.resolvedOCRProvider == .appleVision {
+                stored = AppSettings(recognitionLanguages: stored.recognitionLanguages,
+                    enhancedAnalysisEnabled: stored.enhancedAnalysisEnabled,
+                    autoArchivePolicy: stored.autoArchivePolicy,
+                    processingMode: .api, ocrProvider: .glm,
+                    analysisProvider: stored.analysisProvider,
+                    mistakeValueProvider: stored.mistakeValueProvider,
+                    ocrModelAPI: stored.ocrModelAPI,
+                    analysisModelAPI: stored.analysisModelAPI,
+                    mistakeValueModelAPI: stored.mistakeValueModelAPI,
+                    baiduEducation: stored.baiduEducation)
+                try await repository.saveSettings(settings: stored)
+            }
+            currentSettings = stored
+        } else { try await repository.saveSettings(settings: currentSettings) }
         let taxonomy = try await repository.loadTaxonomy()
         if taxonomy.nodes.isEmpty {
             let seed = try await seedProvider.loadSeed()
