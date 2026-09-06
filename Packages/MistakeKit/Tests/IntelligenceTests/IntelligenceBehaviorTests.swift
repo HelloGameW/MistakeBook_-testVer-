@@ -20,8 +20,10 @@ final class IntelligenceBehaviorTests: XCTestCase {
     func testSegmentationCarriesVisualRegionsIntoQuestionCandidate() async throws {
         let assetID = UUID()
         let pageRegion = SourceRegion(id: UUID(), assetID: assetID, normalizedRect: .fullPage, purpose: .unknown, isUserConfirmed: false)
+        // The table overlaps the question's text bounding box; the heuristic only
+        // carries visuals whose region intersects the candidate.
         let tableRegion = SourceRegion(id: UUID(), assetID: assetID,
-                                       normalizedRect: try NormalizedRect(x: 0.15, y: 0.2, width: 0.7, height: 0.25),
+                                       normalizedRect: try NormalizedRect(x: 0.15, y: 0.12, width: 0.7, height: 0.25),
                                        purpose: .diagram, isUserConfirmed: false)
         let line = OCRLine(id: UUID(), regionID: pageRegion.id, assetID: assetID,
                            rawText: "1. 比较下表数据", confidence: nil, scriptStyle: .printed,

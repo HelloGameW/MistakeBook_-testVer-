@@ -36,13 +36,13 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
         let offset = try Self.decodeCursor(page.cursor, fingerprint: fingerprint)
         let taxonomy = try currentTaxonomy()
         var values = try context.fetch(FetchDescriptor<StoredRecordEntity>()).compactMap { entity -> (MistakeRecord, StoredRecordEntity)? in
-            guard query.includeDeleted || !entity.isDeleted else { return nil }
+            guard query.includeDeleted || !entity.isSoftDeleted else { return nil }
             let record = try decodeRecord(entity.payload)
-            guard query.includeDeleted || !entity.isDeleted else { return nil }
+            guard query.includeDeleted || !entity.isSoftDeleted else { return nil }
             return (record, entity)
         }
         values = values.filter { record, entity in
-            if !query.includeDeleted && entity.isDeleted { return false }
+            if !query.includeDeleted && entity.isSoftDeleted { return false }
             if !query.includeArchived && record.isArchived { return false }
             if let subjectID = query.subjectID, record.classification.subjectID != subjectID { return false }
             if let nodeID = query.taxonomyNodeID {
@@ -97,12 +97,16 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
 
     public func restore(token: DeletionToken) async throws -> [MistakeRecord] {
         try Task.checkCancellation()
+        // Compare fields, not full equality: the stored payload round-trips
+        // through second-precision ISO8601, so Date fields lose sub-second
+        // components and bit-equal comparison would always fail.
         guard let entity = try findDeletion(token.id), !entity.isConsumed,
-              token == (try decode(DeletionToken.self, entity.payload)),
-              token.expiresAt.map({ $0 > Date() }) ?? true else { throw AppError(code: .expiredToken) }
+              let stored = try? decode(DeletionToken.self, entity.payload),
+              stored.recordIDs == token.recordIDs,
+              stored.expiresAt.map({ $0 > Date() }) ?? true else { throw AppError(code: .expiredToken) }
         var writes: [RecordWrite] = []
         for id in token.recordIDs {
-            guard let entity = try findRecordEntity(id), entity.isDeleted else { throw AppError(code: .revisionConflict) }
+            guard let entity = try findRecordEntity(id), entity.isSoftDeleted else { throw AppError(code: .revisionConflict) }
             let current = try decodeRecord(entity.payload)
             let restored = Self.withRevisions(current, recordRevision: current.recordRevision + 1, updatedAt: Date())
             writes.append(RecordWrite(record: restored, expectedRecordRevision: current.recordRevision,
@@ -238,7 +242,9 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
 
     public func loadRegionUndo(token: RegionUndoToken) async throws -> RegionUndoState {
         guard let entity = try context.fetch(FetchDescriptor<StoredRegionUndoEntity>()).first(where: { $0.idString == token.id.uuidString }),
-              let state = try? decode(RegionUndoState.self, entity.payload), state.token == token, state.token.expiresAt.map({ $0 > Date() }) ?? true else { throw AppError(code: .expiredToken) }
+              let state = try? decode(RegionUndoState.self, entity.payload),
+              state.token.id == token.id,
+              state.token.expiresAt.map({ $0 > Date() }) ?? true else { throw AppError(code: .expiredToken) }
         return state
     }
 
@@ -259,7 +265,7 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
     }
 
     public func inventory() async throws -> DataInventory {
-        let records = try context.fetch(FetchDescriptor<StoredRecordEntity>()).filter { !$0.isDeleted }.count
+        let records = try context.fetch(FetchDescriptor<StoredRecordEntity>()).filter { !$0.isSoftDeleted }.count
         let assets = try await referencedAssetIDs()
         let activeJobs = try await listJobs(batchID: nil, states: [.queued, .running]).count
         return DataInventory(recordCount: records, assetCount: assets.count, activeJobCount: activeJobs)
@@ -309,7 +315,7 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
             let current = entities[write.record.id]
             if let current {
                 let isRestoring = transaction.restoreRecordIDs.contains(write.record.id)
-                guard (!current.isDeleted || isRestoring), let currentRecord = try? decodeRecord(current.payload),
+                guard (!current.isSoftDeleted || isRestoring), let currentRecord = try? decodeRecord(current.payload),
                       write.expectedRecordRevision == currentRecord.recordRevision,
                       write.record.recordRevision == currentRecord.recordRevision + 1 else { throw AppError(code: .revisionConflict) }
                 if let expected = write.expectedContentRevision, expected != currentRecord.contentRevision { throw AppError(code: .revisionConflict) }
@@ -326,12 +332,12 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
         let deleteVersions = Dictionary(uniqueKeysWithValues: transaction.expectedDeletedVersions.map { ($0.recordID, $0) })
         guard deleteVersions.count == transaction.deleteRecordIDs.count else { throw AppError(code: .revisionConflict) }
         for id in transaction.deleteRecordIDs {
-            guard let entity = entities[id], !entity.isDeleted, let record = try? decodeRecord(entity.payload),
+            guard let entity = entities[id], !entity.isSoftDeleted, let record = try? decodeRecord(entity.payload),
                   let version = deleteVersions[id], version.recordRevision == record.recordRevision,
                   version.contentRevision == record.contentRevision else { throw AppError(code: .revisionConflict) }
         }
         for id in transaction.restoreRecordIDs {
-            guard let entity = entities[id], entity.isDeleted,
+            guard let entity = entities[id], entity.isSoftDeleted,
                   let tombstone = try context.fetch(FetchDescriptor<StoredTombstoneEntity>()).first(where: { $0.idString == id.uuidString }),
                   let value = try? decode(RecordTombstone.self, tombstone.payload), value.lastRecordRevision == transaction.recordWrites.first(where: { $0.record.id == id })?.expectedRecordRevision else { throw AppError(code: .revisionConflict) }
         }
@@ -364,7 +370,7 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
             let value = item.0; let payload = encodedRecords[index]
             if let entity = item.1 { Self.update(entity: entity, record: value, payload: payload, deleted: false) }
             else {
-                let entity = StoredRecordEntity(idString: value.id.uuidString, payload: payload, isDeleted: false,
+                let entity = StoredRecordEntity(idString: value.id.uuidString, payload: payload, isSoftDeleted: false,
                     recordRevision: value.recordRevision, contentRevision: value.contentRevision, createdAt: value.createdAt,
                     updatedAt: value.updatedAt, searchText: Self.searchText(value), subjectID: value.classification.subjectID,
                     primaryNodeID: value.classification.primaryNodeID)
@@ -373,10 +379,10 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
         }
         let tombstoneValues = Dictionary(uniqueKeysWithValues: transaction.tombstones.map { ($0.recordID, $0) })
         for id in transaction.deleteRecordIDs {
-            if let entity = entities[id] { entity.isDeleted = true; if let tombstone = tombstoneValues[id] { context.insert(StoredTombstoneEntity(idString: id.uuidString, payload: try encode(tombstone))) } }
+            if let entity = entities[id] { entity.isSoftDeleted = true; if let tombstone = tombstoneValues[id] { context.insert(StoredTombstoneEntity(idString: id.uuidString, payload: try encode(tombstone))) } }
         }
         for id in transaction.restoreRecordIDs {
-            if let entity = entities[id] { entity.isDeleted = false }
+            if let entity = entities[id] { entity.isSoftDeleted = false }
             if let tombstone = try context.fetch(FetchDescriptor<StoredTombstoneEntity>()).first(where: { $0.idString == id.uuidString }) { context.delete(tombstone) }
         }
         for job in transaction.jobs {
@@ -396,7 +402,7 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
     }
 
     private func fetchRecord(id: UUID, includeDeleted: Bool) throws -> MistakeRecord? {
-        guard let entity = try findRecordEntity(id), includeDeleted || !entity.isDeleted else { return nil }
+        guard let entity = try findRecordEntity(id), includeDeleted || !entity.isSoftDeleted else { return nil }
         return try decodeRecord(entity.payload)
     }
     private func findRecordEntity(_ id: UUID) throws -> StoredRecordEntity? { try context.fetch(FetchDescriptor<StoredRecordEntity>()).first { $0.idString == id.uuidString } }
@@ -417,7 +423,7 @@ public actor SwiftDataMistakeRepository: ModelActor, MistakeRepository {
         ([record.stem.displayText, record.studentWork.displayText, record.referenceAnswer?.displayText ?? "", record.notes, record.tags.joined(separator: " "), record.classification.primaryNodeID ?? "", record.classification.suggestedTags.joined(separator: " ")]).joined(separator: " ")
     }
     private static func update(entity: StoredRecordEntity, record: MistakeRecord, payload: Data, deleted: Bool) {
-        entity.payload = payload; entity.isDeleted = deleted; entity.recordRevision = record.recordRevision; entity.contentRevision = record.contentRevision; entity.createdAt = record.createdAt; entity.updatedAt = record.updatedAt; entity.searchText = searchText(record); entity.subjectID = record.classification.subjectID; entity.primaryNodeID = record.classification.primaryNodeID
+        entity.payload = payload; entity.isSoftDeleted = deleted; entity.recordRevision = record.recordRevision; entity.contentRevision = record.contentRevision; entity.createdAt = record.createdAt; entity.updatedAt = record.updatedAt; entity.searchText = searchText(record); entity.subjectID = record.classification.subjectID; entity.primaryNodeID = record.classification.primaryNodeID
     }
     private static func withRevisions(_ record: MistakeRecord, recordRevision: Int, updatedAt: Date) -> MistakeRecord {
         MistakeRecord(id: record.id, schemaVersion: record.schemaVersion, recordRevision: recordRevision, contentRevision: record.contentRevision, createdAt: record.createdAt, updatedAt: updatedAt, sourceRegions: record.sourceRegions, ocrLines: record.ocrLines, stem: record.stem, studentWork: record.studentWork, referenceAnswer: record.referenceAnswer, referenceAnswerSource: record.referenceAnswerSource, analysisResult: record.analysisResult, classification: record.classification, notes: record.notes, tags: record.tags, reviewState: record.reviewState, reviewRequired: record.reviewRequired, reviewReasons: record.reviewReasons, processingStatus: record.processingStatus, isArchived: record.isArchived, mistakeValue: record.mistakeValue)

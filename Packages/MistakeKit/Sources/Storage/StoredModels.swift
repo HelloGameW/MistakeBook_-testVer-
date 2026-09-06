@@ -1,11 +1,13 @@
 import Foundation
 import SwiftData
 
+// Soft-delete state uses a custom name: `isDeleted` collides with SwiftData's
+// PersistentModel.isDeleted context semantics and does not persist reliably.
 @Model
 final class StoredRecordEntity {
     @Attribute(.unique) var idString: String
     var payload: Data
-    var isDeleted: Bool
+    var isSoftDeleted: Bool
     var recordRevision: Int
     var contentRevision: Int
     var createdAt: Date
@@ -14,10 +16,10 @@ final class StoredRecordEntity {
     var subjectID: String?
     var primaryNodeID: String?
 
-    init(idString: String, payload: Data, isDeleted: Bool, recordRevision: Int,
+    init(idString: String, payload: Data, isSoftDeleted: Bool, recordRevision: Int,
          contentRevision: Int, createdAt: Date, updatedAt: Date, searchText: String,
          subjectID: String?, primaryNodeID: String?) {
-        self.idString = idString; self.payload = payload; self.isDeleted = isDeleted
+        self.idString = idString; self.payload = payload; self.isSoftDeleted = isSoftDeleted
         self.recordRevision = recordRevision; self.contentRevision = contentRevision
         self.createdAt = createdAt; self.updatedAt = updatedAt; self.searchText = searchText
         self.subjectID = subjectID; self.primaryNodeID = primaryNodeID

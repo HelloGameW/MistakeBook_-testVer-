@@ -2,6 +2,7 @@ import XCTest
 import Contracts
 import Storage
 import Workflow
+import Intelligence
 import TestSupport
 
 final class WorkflowBehaviorTests: XCTestCase {
@@ -63,7 +64,9 @@ final class WorkflowBehaviorTests: XCTestCase {
             TaxonomyNode(id: "math/geometry", parentID: "math", name: "几何", subjectID: "math", aliases: ["geometry"], origin: .seed, isActive: true, version: 1, userModifiedFields: [])
         ])
         let intelligence = IntelligenceServices(ocr: FailingOCRService(), segmentation: FailingSegmentationService(), analysis: FailingAnalysisService(), value: FailingMistakeValueService(), classification: FailingClassificationService(), capabilities: FailingCapabilityProvider())
-        let service = try await WorkflowFactory.make(repository: storage.repository, assets: storage.assets, intelligence: intelligence, exporter: FailingPDFExportService(), seedProvider: InlineSeedProvider(seed: seed), configuration: WorkflowConfiguration(maxBatchSize: 20, maxConcurrentJobs: 1, initialSettings: AppSettings(recognitionLanguages: ["zh-Hans", "en-US"], enhancedAnalysisEnabled: false, autoArchivePolicy: AutoArchivePolicy(version: "none", enabledRules: []))))
+        // The unsalted no-credential store keeps clearAllData independent of the
+        // simulator's Keychain availability under unsigned test runners.
+        let service = try await WorkflowFactory.make(repository: storage.repository, assets: storage.assets, intelligence: intelligence, exporter: FailingPDFExportService(), seedProvider: InlineSeedProvider(seed: seed), configuration: WorkflowConfiguration(maxBatchSize: 20, maxConcurrentJobs: 1, initialSettings: AppSettings(recognitionLanguages: ["zh-Hans", "en-US"], enhancedAnalysisEnabled: false, autoArchivePolicy: AutoArchivePolicy(version: "none", enabledRules: []))), credentialStore: UnavailableCredentialStore())
         return service
     }
 }

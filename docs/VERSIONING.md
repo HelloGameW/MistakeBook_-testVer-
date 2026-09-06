@@ -13,4 +13,4 @@ sh Scripts/bump-version.sh bugfix
 sh Scripts/bump-version.sh feature
 ```
 
-当前版本为 `0.2.9`，构建号为 `11`。`0.2.6`–`0.2.8` 依次修复了 Intelligence、UI、Export 目标的五处编译错误；`0.2.9` 修复模拟器测试构建失败（Xcode 26 会把模拟器 App 目标的 ARCHS_STANDARD 扩展出 x86_64 切片，而 SwiftPM 包模块只构建 arm64 模拟器切片，导致 x86_64 切片无法解析包模块；已在 xcconfig 中对模拟器 SDK 排除 x86_64）。
+当前版本为 `0.2.10`，构建号为 `12`。`0.2.6`–`0.2.9` 依次修复了编译错误与模拟器架构切片问题；`0.2.10` 修复回归测试首次运行暴露的三处产品缺陷：`StoredRecordEntity.isDeleted` 与 SwiftData `PersistentModel.isDeleted` 语义冲突导致软删除不持久（重命名为 `isSoftDeleted`）；令牌存储负载经秒级 ISO8601 往返后严格相等比较必然失败（改为字段级比较）；Workflow 测试改用不依赖模拟器 Keychain 的凭据存储，并修正分段测试的表格 fixture 几何。
