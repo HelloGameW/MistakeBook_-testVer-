@@ -19,7 +19,8 @@ public enum IntelligenceFactory {
         let value = RoutingMistakeValueService(model: ModelAPIMistakeValueService(credentialStore: credentialStore))
         let capabilities = CompositeCapabilityProvider(ocr: ocr, analysis: analysis, credentialStore: credentialStore)
         return IntelligenceServices(ocr: ocr, segmentation: HeuristicSegmentationService(), analysis: analysis,
-                                     value: value, classification: KeywordClassificationService(), capabilities: capabilities)
+                                     value: value, classification: KeywordClassificationService(), capabilities: capabilities,
+                                     gradingMarkDetection: GradingMarkHeuristicsDetector())
     }
 
     public static func makeTaxonomySeedProvider(resourceURL: URL) throws -> any TaxonomySeedProvider {
@@ -41,14 +42,14 @@ private struct CompositeCapabilityProvider: CapabilityProvider, Sendable {
         let valueReady = credentials.contains(.mistakeValueModelAPIKey)
         let fixed = [
             FeatureCapability(feature: .ocr, subjectID: "local-or-api", state: languages.isEmpty && !remoteOCRReady ? .unavailable : .available,
-                              reason: remoteOCRReady ? "Apple Vision 与已配置的 API OCR 可按设置路由。" : "Apple Vision 本地识别可用；API OCR 需另行配置凭据。",
+                              reason: remoteOCRReady ? "手机本地识别可用，已配置的联网识别也能使用。" : "使用手机本地识别，无需联网。",
                               supportedLanguages: languages),
             FeatureCapability(feature: .segmentation, subjectID: nil, state: .available,
-                              reason: "支持本地启发式分题；百度教育 OCR 可直接返回题目结构。", supportedLanguages: []),
+                              reason: "自动按题号拆分每道题，之后可以手动调整。", supportedLanguages: []),
             FeatureCapability(feature: .classification, subjectID: nil, state: .available,
-                              reason: "按本地知识树名称和别名检索。", supportedLanguages: []),
+                              reason: "根据本地知识树推荐归类，由你确认。", supportedLanguages: []),
             FeatureCapability(feature: .mistakeValue, subjectID: "local-or-api", state: .available,
-                              reason: valueReady ? "本地价值量化与模型 API 均可用。" : "本地价值量化可用；模型 API 凭据尚未配置。", supportedLanguages: [])
+                              reason: valueReady ? "本地估算和已配置的服务商都可用。" : "本地估算复习价值，无需配置。", supportedLanguages: [])
         ]
         return CapabilityReport(checkedAt: Date(), features: fixed + analysisReport.features)
     }

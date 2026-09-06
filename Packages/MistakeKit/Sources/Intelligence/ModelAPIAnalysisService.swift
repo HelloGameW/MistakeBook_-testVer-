@@ -26,7 +26,7 @@ public struct ModelAPIAnalysisService: AnalysisService, Sendable {
         return CapabilityReport(checkedAt: Date(), features: [
             FeatureCapability(feature: .enhancedAnalysis, subjectID: "model-api",
                               state: ready ? .available : .notReady,
-                              reason: ready ? "模型 API 错因分析凭据已配置。" : "尚未配置模型 API 错因分析凭据。",
+                              reason: ready ? "已配置，可以联网分析错因。" : "尚未填写密钥，联网分析不可用。",
                               supportedLanguages: [])
         ])
     }

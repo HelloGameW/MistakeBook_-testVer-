@@ -16,6 +16,8 @@ public enum ReviewReason: String, Codable, Sendable, Equatable, CaseIterable {
     case emptyText
     case staleAnalysis
     case staleClassification
+    /// Red-pen grading strokes were detected on the question image.
+    case redPenMarks
 }
 
 public enum OperationState: String, Codable, Sendable, Equatable, CaseIterable {

@@ -11,6 +11,7 @@ public struct MistakeBookRootView: View {
     @State private var showingSettings = false
     @State private var showingTaxonomy = false
     @State private var dataRefreshID = 0
+    @State private var lastBatchID: UUID?
 
     public init(service: any AppService) {
         self.service = service
@@ -18,7 +19,8 @@ public struct MistakeBookRootView: View {
 
     public var body: some View {
         TabView(selection: $selectedTab) {
-            MistakeListView(service: service, onImport: { showingImport = true },
+            MistakeListView(service: service, lastBatchID: lastBatchID,
+                            onImport: { showingImport = true },
                             onSettings: { showingSettings = true })
                 .id(dataRefreshID)
                 .tabItem { Label("错题", systemImage: "book.closed") }
@@ -30,7 +32,7 @@ public struct MistakeBookRootView: View {
                 .tag(RootTab.archive)
         }
         .sheet(isPresented: $showingImport) {
-            ImportFlowView(service: service) { dataRefreshID += 1 }
+            ImportFlowView(service: service, onBatch: { lastBatchID = $0 }) { dataRefreshID += 1 }
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView(service: service)

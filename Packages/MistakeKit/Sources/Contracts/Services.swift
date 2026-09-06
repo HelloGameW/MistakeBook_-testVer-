@@ -59,6 +59,18 @@ public protocol TaxonomySeedProvider: Sendable {
     func loadSeed() async throws -> TaxonomySeed
 }
 
+/// Heuristic grading-mark detection: true when the question image shows red-pen
+/// strokes (老师批改痕迹), suggesting the question was marked wrong.
+public protocol GradingMarkDetectionService: Sendable {
+    func detectGradingMarks(payload: ImagePayload, focus: NormalizedRect?) async -> Bool
+}
+
+/// Default no-op used when no image-capable detector is available.
+public struct NoGradingMarkDetection: GradingMarkDetectionService {
+    public init() {}
+    public func detectGradingMarks(payload: ImagePayload, focus: NormalizedRect?) async -> Bool { false }
+}
+
 public protocol MistakeRepository: Sendable {
     func create(record: MistakeRecord) async throws -> MistakeRecord
     func get(id: UUID) async throws -> MistakeRecord?

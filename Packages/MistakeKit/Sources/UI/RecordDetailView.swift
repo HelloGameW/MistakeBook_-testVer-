@@ -167,8 +167,9 @@ struct RecordDetailView: View {
             HStack {
                 SectionTitle(title: "可能错因", systemImage: "lightbulb")
                 Spacer()
-                Button("重新分析") { model.analyze() }
+                Button(model.isAnalyzing ? "分析中…" : "重新分析") { model.analyze() }
                     .buttonStyle(.bordered)
+                    .disabled(model.isAnalyzing)
             }
 
             if record.isAnalysisStale {
@@ -260,6 +261,7 @@ struct RecordDetailView: View {
         case .emptyText: "文字为空"
         case .staleAnalysis: "错因已过时"
         case .staleClassification: "归档建议已过时"
+        case .redPenMarks: "红笔批改痕迹（疑似错题）"
         }
     }
 }

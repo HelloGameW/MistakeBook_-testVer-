@@ -48,13 +48,13 @@ public struct FoundationModelsAnalysisService: AnalysisService, Sendable {
             switch SystemLanguageModel.default.availability {
             case .available:
                 feature = FeatureCapability(feature: .enhancedAnalysis, subjectID: nil, state: .available,
-                                            reason: "系统设备端语言模型已就绪。", supportedLanguages: ["zh-Hans", "en"])
+                                            reason: "设备端智能已就绪。", supportedLanguages: ["zh-Hans", "en"])
             case .unavailable(_):
                 feature = FeatureCapability(feature: .enhancedAnalysis, subjectID: nil, state: .notReady,
-                                            reason: "系统设备端语言模型尚未就绪或设备/地区不支持。", supportedLanguages: [])
+                                            reason: "设备端智能暂不可用（机型或地区限制），可改用其他服务商。", supportedLanguages: [])
             @unknown default:
                 feature = FeatureCapability(feature: .enhancedAnalysis, subjectID: nil, state: .notReady,
-                                            reason: "系统返回了未知的模型状态，暂时使用基础规则。", supportedLanguages: [])
+                                            reason: "设备端智能状态未知，暂用基础规则。", supportedLanguages: [])
             }
             base = CapabilityReport(checkedAt: Date(), features: base.features.filter { $0.feature != .enhancedAnalysis } + [feature])
         }

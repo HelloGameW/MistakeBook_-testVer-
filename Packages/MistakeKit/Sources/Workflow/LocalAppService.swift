@@ -515,7 +515,7 @@ public actor LocalAppService: AppService {
     }
     public func capabilities() async throws -> CapabilityReport {
         let report = try await intelligence.capabilities.capabilities()
-        let extras = [FeatureCapability(feature: .importImages, subjectID: nil, state: .available, reason: "可从本地图片导入。", supportedLanguages: []), FeatureCapability(feature: .pdfExport, subjectID: nil, state: .available, reason: "由注入的离线 PDF 服务提供。", supportedLanguages: [])]
+        let extras = [FeatureCapability(feature: .importImages, subjectID: nil, state: .available, reason: "支持相册、文件和扫描导入。", supportedLanguages: []), FeatureCapability(feature: .pdfExport, subjectID: nil, state: .available, reason: "可生成练习版或含解析版 PDF。", supportedLanguages: [])]
         return CapabilityReport(checkedAt: Date(), features: report.features + extras)
     }
     public func settings() async throws -> AppSettings { try await ensureStarted(); return currentSettings }
@@ -667,9 +667,17 @@ public actor LocalAppService: AppService {
             } else {
                 regions = candidate.regions
             }
+            // Red-pen grading strokes on the question image mark likely-wrong answers.
+            var recordReasons = reasons
+            if let markAssetID = regions.first?.assetID, let markPayload = try? await assets.loadImage(assetID: markAssetID) {
+                let focus: NormalizedRect? = regions.first?.assetID == job.assetID ? Self.unionNormalizedRect(of: regions) : nil
+                if await intelligence.gradingMarkDetection.detectGradingMarks(payload: markPayload, focus: focus) {
+                    recordReasons.append(.redPenMarks)
+                }
+            }
             values.append(Self.emptyRecord(id: UUID(), regions: regions, ocrLines: lines,
                 stem: stemLines.map(\.rawText).joined(separator: "\n"), studentWork: studentLines.map(\.rawText).joined(separator: "\n"),
-                ocrOutcome: OperationOutcome(state: .success, error: nil, inputContentRevision: 1), reviewReasons: reasons))
+                ocrOutcome: OperationOutcome(state: .success, error: nil, inputContentRevision: 1), reviewReasons: recordReasons))
         }
         return try await saveDrafts(values, job: current)
     }
@@ -806,7 +814,7 @@ public actor LocalAppService: AppService {
     }
     private func currentSettingsAnalysis() -> AnalysisOptions {
         AnalysisOptions(useEnhancedModel: currentSettings.enhancedAnalysisEnabled,
-            language: currentSettings.recognitionLanguages.first ?? "zh-Hans", timeoutSeconds: 30,
+            language: currentSettings.recognitionLanguages.first ?? "zh-Hans", timeoutSeconds: 60,
             processingMode: currentSettings.resolvedProcessingMode,
             provider: currentSettings.resolvedAnalysisProvider,
             modelAPI: currentSettings.analysisModelAPI)

@@ -72,7 +72,9 @@ final class WorkflowBehaviorTests: XCTestCase {
                                         providerID: "scripted", providerVersion: "1", supportedLanguages: [], warnings: [],
                                         candidates: [SegmentationCandidate(id: UUID(), order: 1, regions: [topRegion], lineIDs: [topLine.id], needsConfirmation: false, warnings: []),
                                                      SegmentationCandidate(id: UUID(), order: 2, regions: [bottomRegion], lineIDs: [bottomLine.id], needsConfirmation: false, warnings: [])])
-        let service = try await makeService(ocr: ScriptedOCRService(result: .success(recognized)), segmentation: PassThroughSegmentationService())
+        let service = try await makeService(ocr: ScriptedOCRService(result: .success(recognized)),
+                                            segmentation: PassThroughSegmentationService(),
+                                            markDetection: ScriptedGradingMarkDetection(result: true))
         let batchID = try await service.importPages(pages: [ImportedPage(id: UUID(), bytes: try XCTUnwrap(image.pngData()), mediaType: .png, sourceName: "worksheet", order: 0)],
             options: ImportOptions(duplicatePolicy: .skipExisting,
                                    recognition: RecognitionOptions(languages: ["zh-Hans"], quality: .accurate, usesLanguageCorrection: false, maxPixelDimension: 4096),
@@ -83,6 +85,8 @@ final class WorkflowBehaviorTests: XCTestCase {
         XCTAssertEqual(records.count, 2)
         XCTAssertTrue(records.contains { $0.stem.displayText.contains("第一题") })
         XCTAssertTrue(records.contains { $0.stem.displayText.contains("第二题") })
+        XCTAssertTrue(records.allSatisfy { $0.reviewReasons.contains(.redPenMarks) },
+                      "scripted grading marks must flag every record")
         for record in records {
             let croppedAssetID = try XCTUnwrap(record.sourceRegions.first?.assetID)
             let payload = try await service.loadImage(assetID: croppedAssetID)
@@ -92,7 +96,8 @@ final class WorkflowBehaviorTests: XCTestCase {
     }
 
     private func makeService(ocr: any OCRService = FailingOCRService(),
-                             segmentation: any SegmentationService = FailingSegmentationService()) async throws -> any AppService {
+                             segmentation: any SegmentationService = FailingSegmentationService(),
+                             markDetection: any GradingMarkDetectionService = NoGradingMarkDetection()) async throws -> any AppService {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("mistakebook-workflow-\(UUID().uuidString)")
         let storage = try await StorageFactory.make(configuration: StorageConfiguration(rootDirectory: root, inMemory: true, excludeFromBackup: false, protection: .completeUntilFirstUserAuthentication))
         let seed = try TaxonomySeed(schemaVersion: 1, seedVersion: "test-seed", nodes: [
@@ -102,7 +107,7 @@ final class WorkflowBehaviorTests: XCTestCase {
             TaxonomyNode(id: "math/algebra/sets/subsets", parentID: "math/algebra/sets", name: "子集", subjectID: "math", aliases: ["subset"], origin: .seed, isActive: true, version: 1, userModifiedFields: []),
             TaxonomyNode(id: "math/geometry", parentID: "math", name: "几何", subjectID: "math", aliases: ["geometry"], origin: .seed, isActive: true, version: 1, userModifiedFields: [])
         ])
-        let intelligence = IntelligenceServices(ocr: ocr, segmentation: segmentation, analysis: FailingAnalysisService(), value: FailingMistakeValueService(), classification: FailingClassificationService(), capabilities: FailingCapabilityProvider())
+        let intelligence = IntelligenceServices(ocr: ocr, segmentation: segmentation, analysis: FailingAnalysisService(), value: FailingMistakeValueService(), classification: FailingClassificationService(), capabilities: FailingCapabilityProvider(), gradingMarkDetection: markDetection)
         // The unsalted no-credential store keeps clearAllData independent of the
         // simulator's Keychain availability under unsigned test runners.
         let service = try await WorkflowFactory.make(repository: storage.repository, assets: storage.assets, intelligence: intelligence, exporter: FailingPDFExportService(), seedProvider: InlineSeedProvider(seed: seed), configuration: WorkflowConfiguration(maxBatchSize: 20, maxConcurrentJobs: 1, initialSettings: AppSettings(recognitionLanguages: ["zh-Hans", "en-US"], enhancedAnalysisEnabled: false, autoArchivePolicy: AutoArchivePolicy(version: "none", enabledRules: []))), credentialStore: UnavailableCredentialStore())
@@ -117,4 +122,9 @@ private struct InlineSeedProvider: TaxonomySeedProvider {
 
 private struct PassThroughSegmentationService: SegmentationService {
     func segment(page: RecognizedPage, options: SegmentationOptions) async throws -> [SegmentationCandidate] { page.candidates }
+}
+
+private struct ScriptedGradingMarkDetection: GradingMarkDetectionService {
+    let result: Bool
+    func detectGradingMarks(payload: ImagePayload, focus: NormalizedRect?) async -> Bool { result }
 }

@@ -9,6 +9,7 @@ import Contracts
 @MainActor
 struct ImportFlowView: View {
     let service: any AppService
+    var onBatch: (UUID) -> Void = { _ in }
     var onChanged: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
@@ -106,6 +107,9 @@ struct ImportFlowView: View {
                 loadPhotos(items)
                 photoItems = []
             }
+            .onChange(of: model.batchID) { _, batchID in
+                if let batchID { onBatch(batchID) }
+            }
         }
         .presentationDetents([.medium, .large])
     }
@@ -143,6 +147,9 @@ struct ImportFlowView: View {
             .accessibilityLabel("错题内容模式")
 
             Text(recordModeExplanation)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Text("一次最多整理 20 张图片，原图始终保留。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         } header: {

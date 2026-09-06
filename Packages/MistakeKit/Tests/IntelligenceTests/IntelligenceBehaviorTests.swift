@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 import Contracts
 import Intelligence
 
@@ -107,6 +108,37 @@ final class IntelligenceBehaviorTests: XCTestCase {
         XCTAssertTrue(result.hypotheses.contains { $0.kind == .reading })
         XCTAssertTrue(result.hypotheses.contains { $0.kind == .procedure })
         XCTAssertTrue(result.hypotheses.flatMap(\.evidence).contains { $0.lineID == line.id })
+    }
+
+    func testGradingMarkDetectorDistinguishesRedPenStrokes() async throws {
+        func render(_ draw: (CGContext) -> Void) throws -> ImagePayload {
+            let format = UIGraphicsImageRendererFormat()
+            format.scale = 1
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 100, height: 100), format: format).image { context in
+                UIColor.white.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 100, height: 100))
+                draw(context.cgContext)
+            }
+            let bytes = try XCTUnwrap(image.pngData())
+            return ImagePayload(assetID: UUID(), bytes: bytes, mediaType: .png, orientation: .up, pixelWidth: 100, pixelHeight: 100)
+        }
+        let detector = GradingMarkHeuristicsDetector()
+        let clean = try render { context in
+            UIColor.black.setFill()
+            context.fill(CGRect(x: 10, y: 10, width: 80, height: 2))
+        }
+        XCTAssertFalse(await detector.detectGradingMarks(payload: clean, focus: nil))
+        let marked = try render { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 10, y: 40, width: 60, height: 4))
+        }
+        XCTAssertTrue(await detector.detectGradingMarks(payload: marked, focus: nil))
+        let outside = try render { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 10, y: 90, width: 60, height: 4))
+        }
+        XCTAssertFalse(await detector.detectGradingMarks(payload: outside, focus: try NormalizedRect(x: 0, y: 0, width: 1, height: 0.5)),
+                       "marks outside the focused region must be ignored")
     }
 
 }

@@ -295,6 +295,7 @@ final class RecordDetailViewModel: ObservableObject {
     @Published var record: MistakeRecord?
     @Published var image: UIImage?
     @Published var isLoading = true
+    @Published var isAnalyzing = false
     @Published var errorMessage: String?
     @Published var actionMessage: String?
 
@@ -362,17 +363,19 @@ final class RecordDetailViewModel: ObservableObject {
     }
 
     func analyze() {
-        guard let record else { return }
+        guard let record, !isAnalyzing else { return }
+        isAnalyzing = true
         Task { [weak self, service = self.service, recordID] in
             do {
                 let updated = try await service.analyze(id: recordID, expectedContentRevision: record.contentRevision)
                 guard let self else { return }
                 self.record = updated
-                self.actionMessage = "已完成一次分析；请依据证据确认候选。"
+                self.actionMessage = "分析完成；请依据证据确认候选。"
             } catch {
                 guard let self else { return }
                 self.errorMessage = UIErrorMessage.from(error)
             }
+            isAnalyzing = false
         }
     }
 

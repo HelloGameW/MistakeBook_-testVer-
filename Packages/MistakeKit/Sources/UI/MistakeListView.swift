@@ -5,14 +5,17 @@ import Contracts
 @MainActor
 struct MistakeListView: View {
     let service: any AppService
+    let lastBatchID: UUID?
     let onImport: () -> Void
     let onSettings: () -> Void
 
     @StateObject private var model: MistakeListViewModel
     @State private var showingExport = false
+    @State private var showingQueue = false
 
-    init(service: any AppService, onImport: @escaping () -> Void, onSettings: @escaping () -> Void) {
+    init(service: any AppService, lastBatchID: UUID?, onImport: @escaping () -> Void, onSettings: @escaping () -> Void) {
         self.service = service
+        self.lastBatchID = lastBatchID
         self.onImport = onImport
         self.onSettings = onSettings
         _model = StateObject(wrappedValue: MistakeListViewModel(service: service))
@@ -119,14 +122,23 @@ struct MistakeListView: View {
                     .buttonStyle(.borderedProminent)
                 }
                 Button {
+                    showingQueue = true
+                } label: {
+                    Label("处理队列", systemImage: "clock.arrow.circlepath")
+                }
+                .disabled(lastBatchID == nil)
+                filterMenu
+                Button {
                     onSettings()
                 } label: {
                     Image(systemName: "gearshape")
                 }
                 .accessibilityLabel("设置")
             }
-            ToolbarItem(placement: .bottomBar) {
-                filterMenu
+        }
+        .sheet(isPresented: $showingQueue) {
+            if let batchID = lastBatchID {
+                ProcessingQueueSheet(service: service, batchID: batchID)
             }
         }
         .onChange(of: model.searchText) { _, _ in model.refresh() }
@@ -182,6 +194,11 @@ struct MistakeListView: View {
                 .foregroundStyle(.secondary)
                 if record.reviewRequired || record.isAnalysisStale || record.isMistakeValueStale {
                     HStack(spacing: 8) {
+                        if record.reviewReasons.contains(.redPenMarks) {
+                            Label("疑似错题", systemImage: "xmark.rectangle")
+                                .foregroundStyle(.red)
+                                .font(.caption.weight(.semibold))
+                        }
                         if record.reviewRequired { Label("待确认", systemImage: "questionmark.circle") }
                         if record.isAnalysisStale { Label("分析基于旧内容", systemImage: "clock.arrow.circlepath") }
                         if record.isMistakeValueStale { Label("重要度待更新", systemImage: "gauge.with.dots.needle.33percent") }
