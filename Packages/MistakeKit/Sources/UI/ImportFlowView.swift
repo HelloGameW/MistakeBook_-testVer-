@@ -27,8 +27,9 @@ struct ImportFlowView: View {
     @State private var manualNotes = ""
     @State private var isSavingManual = false
 
-    init(service: any AppService, onChanged: @escaping () -> Void = {}) {
+    init(service: any AppService, onBatch: @escaping (UUID) -> Void = { _ in }, onChanged: @escaping () -> Void = {}) {
         self.service = service
+        self.onBatch = onBatch
         self.onChanged = onChanged
         _model = StateObject(wrappedValue: ImportFlowViewModel(service: service))
     }

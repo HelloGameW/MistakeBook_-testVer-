@@ -13,4 +13,4 @@ sh Scripts/bump-version.sh bugfix
 sh Scripts/bump-version.sh feature
 ```
 
-当前版本为 `0.4.1`，构建号为 `16`。`0.4.1` 修复 `analyze()` 闭包中 do/catch 之后对可选 self 的隐式访问（Swift 6 要求显式 `self?.`），状态复位已移入两条分支内保证复位。
+当前版本为 `0.4.2`，构建号为 `17`。`0.4.2` 修复 ImportFlowView 新增 onBatch 回调时未同步更新 init 签名导致的"多余参数"编译错误；已对 0.4.x 全部新 API 的调用点与定义做逐一核对审计。
